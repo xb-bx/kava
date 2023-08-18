@@ -3,8 +3,10 @@ import "core:os"
 
 when ODIN_OS == .Windows {
     KAVA_EXE :: "kava.exe"
+    CLASSPARSER_EXE :: "classparser.exe"
 } else {
     KAVA_EXE :: "kava"
+    CLASSPARSER_EXE:: "classparser"
 }
 
 
@@ -22,6 +24,6 @@ main :: proc() {
     }
 
     collections: map[string]string = {"zip" = "odin-zip/src",  "kava" = "src", "libzip" = "odin-zip/libzip", }
-    odin_build("src/classparser", output = "classparser", collections = collections)
+    odin_build("src/classparser", output = CLASSPARSER_EXE, collections = collections)
     odin_build("src/vm", output = KAVA_EXE, collections = collections)
 }
