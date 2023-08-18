@@ -2,8 +2,8 @@
 
 TODO:
 - [X] Class parser
-- [ ] Type system
-- [ ] .jar loading
+- [X] Type system
+- [X] .jar loading
 - [ ] standard classes(java.lang.*, java.io.* etc.)
 - [ ] JIT
 - [ ] Bytecode execution
@@ -11,4 +11,4 @@ TODO:
 - [ ] Multithreading
 
 Goals:
-- [ ] Can run Minecraft
+- [ ] Run Minecraft

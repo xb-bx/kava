@@ -2,3 +2,4 @@ build
 *.bin
 nobuild.odin
 *.class
+odin-zip
