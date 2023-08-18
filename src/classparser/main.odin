@@ -16,9 +16,21 @@ TableSwitch :: struct {
     offsets: []int,
 
 }
+IntPair :: struct {
+    fst: int,
+    snd: int,
+}
+LookupSwitch :: struct {
+    offset: int,
+    opcode: Opcode,
+    default: int,
+    pairs: []IntPair,
+
+}
 Instruction :: union {
     SimpleInstruction,    
     TableSwitch,
+    LookupSwitch,
 }
 Operand :: union {
     OneOperand,
@@ -1175,6 +1187,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 panic("should not appear")
             case .tableswitch:
                 start := i
+                i += 1
                 if i % 4 != 0 {
                     i += 4 - i%4
                 }
@@ -1198,6 +1211,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 table.default = cast(int)default.(u32) + start
                 table.low = cast(int)low.(u32)
                 table.high = cast(int)high.(u32)
+                fmt.println(table)
                 table.offsets = make([]int, table.high - table.low + 1)
                 for i in table.low..=table.high {
                     off := read_u32_be(&table_reader)
@@ -1213,8 +1227,49 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 table.opcode = Opcode.tableswitch
                 append(&instructions, table)
             case .lookupswitch:
-                fmt.println("Unimplemented", opcode)
-                panic("")
+                start := i
+                i += 1
+                if i % 4 != 0 {
+                    i += 4 - i%4
+                }
+                table_reader := Reader { bytes = bytes, position = i }
+                default := read_u32_be(&table_reader)
+                if default == nil {
+                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    return result
+                }
+                npairs := read_u32_be(&table_reader)
+                if npairs == nil {
+                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    return result
+                }
+                lookup := LookupSwitch {
+                    offset = start,
+                    opcode = opcode,
+                    default = cast(int)default.(u32),
+                    
+                }
+                lookup.pairs = make([]IntPair, npairs.(u32))
+                for ip in 0..<len(lookup.pairs) {
+                    key := read_u32_be(&table_reader)
+                    if key == nil {
+                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        return result
+                    }
+                    value := read_u32_be(&table_reader)
+                    if value == nil {
+                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        return result
+                    }
+                    lookup.pairs[ip] = IntPair {
+                        fst = cast(int)key.(u32),
+                        snd = cast(int)value.(u32) + start,
+                    }
+                }
+                i = table_reader.position - 1
+                append(&instructions, lookup)
+
+                
         }
         i += 1
     }
@@ -1338,6 +1393,8 @@ print_class_info :: proc(class: ClassFile) {
     fmt.printf("Method count: %i\n", len(class.methods))
     for method in class.methods {
         print_flags(method.access_flags)
+        classs := class
+        fmt.println(find_attr(&classs, method.attributes, "Code").(AttributeInfo).info)
         fmt.printf(" %s %s\n", class.constant_pool[method.descriptor_index - 1].(UTF8Info).str, class.constant_pool[method.name_index - 1].(UTF8Info).str)
         if method.bytecode != nil {
             code := method.bytecode.(CodeAttribute)
@@ -1363,6 +1420,13 @@ print_class_info :: proc(class: ClassFile) {
                         fmt.printf("\t%3i: %s low: %i high: %i\n", table.offset, table.opcode, table.low, table.high) 
                         for off, i in table.offsets {
                             fmt.printf("\t\t%7i: %i\n", i + table.low, off) 
+                        }
+                        fmt.printf("\t\tdefault: %i\n", table.default) 
+                    case LookupSwitch:
+                        table := instr.(LookupSwitch)
+                        fmt.printf("\t%3i: %s npairs = %i\n", table.offset, table.opcode, len(table.pairs)) 
+                        for pair in table.pairs {
+                            fmt.printf("\t\t%7i: %i\n", pair.fst, pair.snd) 
                         }
                         fmt.printf("\t\tdefault: %i\n", table.default) 
 
