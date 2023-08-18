@@ -1,7 +1,11 @@
 package nobuild 
 import "core:os"
 
-
+when ODIN_OS == .Windows {
+    KAVA_EXE :: "kava.exe"
+} else {
+    KAVA_EXE :: "kava"
+}
 
 
 main :: proc() {
@@ -19,5 +23,5 @@ main :: proc() {
 
     collections: map[string]string = {"zip" = "odin-zip/src",  "kava" = "src", "libzip" = "odin-zip/libzip", }
     odin_build("src/classparser", output = "classparser", collections = collections)
-    odin_build("src/vm", output = "kava", collections = collections)
+    odin_build("src/vm", output = KAVA_EXE, collections = collections)
 }
