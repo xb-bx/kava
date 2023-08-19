@@ -24,6 +24,7 @@ main :: proc() {
     }
 
     collections: map[string]string = {"zip" = "odin-zip/src",  "kava" = "src", "libzip" = "odin-zip/libzip", }
-    odin_build("src/classparser", output = CLASSPARSER_EXE, collections = collections)
-    odin_build("src/vm", output = KAVA_EXE, collections = collections)
+    additional := [?]string {"-debug"}
+    odin_build("src/classparser", output = CLASSPARSER_EXE, collections = collections, additional_args = additional[:])
+    odin_build("src/vm", output = KAVA_EXE, collections = collections, additional_args = additional[:])
 }
