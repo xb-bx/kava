@@ -64,28 +64,24 @@ main :: proc() {
     if app.is_err {
         error(app.error.(string))
     }
-    methods := vm.classes["HelloWorld"].methods
-    main : ^Method = nil
-    for method in &methods {
-        if method.name == "main" {
-            main = &method
-            break
+    for class_name, class in vm.classes {
+        fmt.printf("Class %s\n", class_name)
+        for &method in class.methods {
+            fmt.printf("  Method %s:%s\n", method.name, method.ret_type.name)
+            blocks := (split_method_into_codeblocks(&vm, &method))
+            if blocks.is_err {
+                print_verification_error(blocks.error.(VerificationError))
+                error("")
+            }
+            fmt.print("    locals: ")
+            for local in method.locals {
+                fmt.printf("%s ", local.name)
+            }
+            fmt.println()
+            for &block in blocks.value.([]CodeBlock) {
+                print_codeblock(&block)
+            }
         }
-    }
-    blocks := (split_method_into_codeblocks(&vm, main))
-    fmt.print("locals: ")
-    for local in main.locals {
-        fmt.printf("%s ", local.name)
-    }
-    fmt.println()
-    for block in blocks {
-        fmt.printf("start: %i end: %i\n", block.start, block.end)
-        fmt.printf("stack: ")
-        for typ in block.stack_at_start.types {
-            fmt.print(typ.name)
-            fmt.print(" ")
-        }
-        fmt.println()
     }
 //     for k,v in vm.classes {
 //         fmt.println(k, "=", v.name, v.class_type)

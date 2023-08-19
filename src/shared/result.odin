@@ -15,24 +15,11 @@ Ok :: proc($TErr: typeid, value: $TOk) -> Result(TOk, TErr) {
         is_err = false,
     } 
 }
-when ODIN_DEBUG {
-    Err :: proc($TOk: typeid, value: $TErr, loc := #caller_location) -> Result(TOk, TErr) {
-        
-        return Result(TOk, TErr) {
-            value = nil,
-            error = fmt.aprintf("%s at %v", value, loc),
-            is_ok = false,
-            is_err = true,
-        }
-    }
-}
-else {
-    Err :: proc($TOk: typeid, value: $TErr) -> Result(TOk, TErr) {
-        return Result(TOk, TErr) {
-            value = nil,
-            error = value,
-            is_ok = false,
-            is_err = true,
-        }
+Err :: proc($TOk: typeid, value: $TErr) -> Result(TOk, TErr) {
+    return Result(TOk, TErr) {
+        value = nil,
+        error = value,
+        is_ok = false,
+        is_err = true,
     }
 }

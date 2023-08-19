@@ -25,6 +25,7 @@ Field :: struct {
 }
 Method :: struct {
     name: string,
+    descriptor: string, 
     access_flags: classparser.MemberAccessFlags,
     ret_type: ^Class,
     args: []^Class,

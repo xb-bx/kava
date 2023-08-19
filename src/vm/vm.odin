@@ -25,19 +25,36 @@ primitive_names: map[PrimitiveType]string = {
     PrimitiveType.Void = "void",
     PrimitiveType.Boolean = "boolean",
 }
+primitive_descriptors : map[PrimitiveType]string = {
+    PrimitiveType.Int = "I",
+    PrimitiveType.Char = "C",
+    PrimitiveType.Byte = "B",
+    PrimitiveType.Short = "S",
+    PrimitiveType.Float = "F",
+    PrimitiveType.Double = "D",
+    PrimitiveType.Long = "J",
+    PrimitiveType.Void = "V",
+    PrimitiveType.Boolean = "Z",
+}
 hasFlag :: proc(flags: $T, flag: T) -> bool 
     where intrinsics.type_is_enum(T) {
     return cast(int)flags & cast(int)flag > 0
 }
-make_array_type :: proc(vm: ^VM, type: ^Class, name: string, dimensions: int) -> ^Class {
+make_array_type :: proc(vm: ^VM, type: ^Class) -> ^Class {
+    parts := [?]string {"[", type.name}
+    if type.class_type == ClassType.Primitive {
+        parts[1] = primitive_descriptors[type.primitive]  
+    }
+    name := strings.concatenate(parts[:])
     if class, found := vm.classes[name]; found {
+        delete(name)
         return class
     }
     typ := new(Class) 
     typ.name = name
     typ.class_type = ClassType.Array
     typ.underlaying = type
-    typ.dimensions = dimensions
+    typ.super_class = vm.classes["java/lang/Object"]
     vm.classes[name] = typ 
     return typ
 } 
@@ -69,13 +86,21 @@ uncompress_if_exists :: proc(zip_file_name: string, file_name: string) -> []u8 {
     }
     return bytes
 }
+find_method_by_name_and_descriptor :: proc(class: ^Class, name: string, descriptor: string) -> ^Method {
+    for &method in class.methods {
+        if method.name == name && method.descriptor == descriptor {
+            return &method
+        }
+    }
+    return nil
+}
 load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string) {
     using classparser
     using shared 
     if cl, is_found := vm.classes[class_name]; is_found {
         return Ok(string, cl)
     } 
-    else if class_name[0] == '[' || len(class_name) == 1 {
+    else if class_name[0] == '[' || len(class_name) == 1 || strings.contains(class_name, ";") {
         type, _ := type_descriptor_to_type(vm, class_name)
         return type
     }
@@ -194,6 +219,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                     panic("")
                 }
                 meth.name = name.(string)
+                meth.descriptor = typ.(string)
                 meth.access_flags = method.access_flags
                 meth.code = method.bytecode
                 err := parse_method_descriptor(vm, &meth, typ.(string))
@@ -263,17 +289,11 @@ type_descriptor_to_type :: proc(vm: ^VM, descriptor: string) -> (shared.Result(^
             if type.is_err {
                 return type, 0
             }
-            index := strings.index_any(descriptor, ";)")
-            name := descriptor
-            if index != -1 {
-                if descriptor[index] == ')' {
-                    name = descriptor[0:index]
-                }
-                else {
-                    name = descriptor[0:index+1]
-                }
+            restype := type.value.(^Class)
+            for j in 0..<i {
+                restype = make_array_type(vm, restype)
             }
-            return Ok(string, make_array_type(vm, type.value.(^Class), name, i)), read + 1
+            return Ok(string, restype), read + i
         case 'I': 
             return Ok(string, vm.classes[primitive_names[PrimitiveType.Int]]), 1
         case 'C': 

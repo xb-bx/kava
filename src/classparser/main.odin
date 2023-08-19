@@ -1038,7 +1038,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                         index = cast(int)bytes[i + 1]
                     }
                     append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = single_op(index)})
-                    i += 2
+                    i += size
                 }
                 next_is_wide = false
 
@@ -1299,11 +1299,30 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
     }
     return shared.Ok(string, instructions[:])    
 }
+
+resolve_name_and_type :: proc(class: ^ClassFile, index: u16) -> Maybe(NameAndTypeInfo) {
+    if cast(int)index <= len(class.constant_pool) && index != 0 {
+        cl, isok := class.constant_pool[index - 1].(NameAndTypeInfo)
+        if isok {
+            return cl
+        }
+    }
+    return nil
+}
 resolve_type_from_name_and_type :: proc(class: ^ClassFile, index: u16) -> Maybe(string) {
     if cast(int)index <= len(class.constant_pool) && index != 0 {
         cl, isok := class.constant_pool[index - 1].(NameAndTypeInfo)
         if isok {
             return resolve_utf8(class, cl.descriptor_index)
+        }
+    }
+    return nil
+}
+resolve_methodref :: proc(class: ^ClassFile, index: u16) -> Maybe(MethodRefInfo) {
+    if cast(int)index <= len(class.constant_pool) && index != 0 {
+        cl, isok := class.constant_pool[index - 1].(MethodRefInfo)
+        if isok {
+            return cl
         }
     }
     return nil
@@ -1441,44 +1460,49 @@ print_class_info :: proc(class: ClassFile) {
             code := method.bytecode.(CodeAttribute)
             fmt.printf("max_stack: %i max_locals: %i\n", code.max_stack, code.max_locals)
             for instr in code.code {
-                switch in instr {
-                    case SimpleInstruction: {
-                        fmt.printf("\t%3i: %s ",instr.(SimpleInstruction).offset, instr.(SimpleInstruction).opcode) 
-                        switch in instr.(SimpleInstruction).operand {
-                            case OneOperand: {
-                                fmt.println(instr.(SimpleInstruction).operand.(OneOperand).op)
-                            }
-                            case TwoOperands: {
-                                ops := instr.(SimpleInstruction).operand.(TwoOperands)
-                                fmt.printf("%i %i\n", ops.op1, ops.op2)
-                            }
-                            case nil:
-                                fmt.println()
-                        }
-                    } 
-                    case TableSwitch:
-                        table := instr.(TableSwitch)
-                        fmt.printf("\t%3i: %s low: %i high: %i\n", table.offset, table.opcode, table.low, table.high) 
-                        for off, i in table.offsets {
-                            fmt.printf("\t\t%7i: %i\n", i + table.low, off) 
-                        }
-                        fmt.printf("\t\tdefault: %i\n", table.default) 
-                    case LookupSwitch:
-                        table := instr.(LookupSwitch)
-                        fmt.printf("\t%3i: %s npairs = %i\n", table.offset, table.opcode, len(table.pairs)) 
-                        for pair in table.pairs {
-                            fmt.printf("\t\t%7i: %i\n", pair.fst, pair.snd) 
-                        }
-                        fmt.printf("\t\tdefault: %i\n", table.default) 
-
-
-                }
+                print_instruction(instr)
             }
         }
     }
 
     fmt.println(class.attributes)
 }
+
+print_instruction :: proc(instr: Instruction) {
+    switch in instr {
+        case SimpleInstruction: {
+            fmt.printf("\t%3i: %s ",instr.(SimpleInstruction).offset, instr.(SimpleInstruction).opcode) 
+            switch in instr.(SimpleInstruction).operand {
+                case OneOperand: {
+                    fmt.println(instr.(SimpleInstruction).operand.(OneOperand).op)
+                }
+                case TwoOperands: {
+                    ops := instr.(SimpleInstruction).operand.(TwoOperands)
+                    fmt.printf("%i %i\n", ops.op1, ops.op2)
+                }
+                case nil:
+                    fmt.println()
+            }
+        } 
+        case TableSwitch:
+            table := instr.(TableSwitch)
+            fmt.printf("\t%3i: %s low: %i high: %i\n", table.offset, table.opcode, table.low, table.high) 
+            for off, i in table.offsets {
+                fmt.printf("\t\t%7i: %i\n", i + table.low, off) 
+            }
+            fmt.printf("\t\tdefault: %i\n", table.default) 
+        case LookupSwitch:
+            table := instr.(LookupSwitch)
+            fmt.printf("\t%3i: %s npairs = %i\n", table.offset, table.opcode, len(table.pairs)) 
+            for pair in table.pairs {
+                fmt.printf("\t\t%7i: %i\n", pair.fst, pair.snd) 
+            }
+            fmt.printf("\t\tdefault: %i\n", table.default) 
+
+
+    }
+}
+
 main :: proc() {
     args := os.args
     if len(args) != 2 {
