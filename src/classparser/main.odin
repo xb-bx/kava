@@ -268,7 +268,18 @@ BytecodeBehaivour :: enum {
     REF_newInvokeSpecial, 
     REF_invokeInterface, 
 }
-AccessFlags :: enum u16 {
+MemberAccessFlags :: enum u16 {
+    Public = 0x0001,
+    Private = 0x0002,
+    Protected = 0x0004,
+    Static = 0x0008,
+    Final = 0x0010,
+    Volatile = 0x0040,
+    Transient = 0x0080,
+    Synthetic = 0x1000,
+    Enum = 0x4000,
+}
+ClassAccessFlags :: enum u16 {
     Public = 0x0001,
     Final = 0x0010,
     Super = 0x0020,
@@ -279,7 +290,7 @@ AccessFlags :: enum u16 {
     Enum = 0x4000,
 }
 FieldInfo :: struct {
-    access_flags: AccessFlags,
+    access_flags: MemberAccessFlags,
     name_index: u16,
     descriptor_index: u16,
     attributes: []AttributeInfo,
@@ -292,7 +303,7 @@ ClassFile :: struct {
     minor_version : u16,
     major_version : u16,
     constant_pool : []ConstantPoolInfo,
-    access_flags: AccessFlags,
+    access_flags: ClassAccessFlags,
     this_class: u16,
     super_class: u16,
     interfaces: []u16,
@@ -368,7 +379,7 @@ StringInfo :: struct {
     string_index: u16,
 }
 MethodInfo :: struct {
-    access_flags: AccessFlags,
+    access_flags: MemberAccessFlags,
     name_index: u16,
     descriptor_index: u16,
     attributes: []AttributeInfo,
@@ -387,10 +398,24 @@ ExceptionInfo :: struct {
     handler_pc: u16,
     catch_type: u16,
 }
-print_flags :: proc(flags: AccessFlags) {
+print_flags :: proc {print_member_flags, print_class_flags}
+print_member_flags :: proc(flags: MemberAccessFlags) {
     wasprev := false
-    for flag in AccessFlags {
-        if cast(int)flags & cast(int)flag == 1 {
+    for flag in MemberAccessFlags{
+        if cast(int)flags & cast(int)flag > 0 {
+            if wasprev {
+                fmt.print(" | ")
+            }
+            fmt.print(flag)
+            wasprev = true
+        }
+        
+    } 
+}
+print_class_flags :: proc(flags: ClassAccessFlags) {
+    wasprev := false
+    for flag in ClassAccessFlags {
+        if cast(int)flags & cast(int)flag > 0 {
             if wasprev {
                 fmt.print(" | ")
             }
@@ -558,58 +583,58 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
     using shared
     reader := Reader { bytes = bytes, position = 0 }
     class := ClassFile {}
-    result := Ok(ClassFile, string, class)
+    result := Ok(string, class)
     defer if result.is_err {
         delete_class(class)
     }
     magic := read_u32_be(&reader)
     if magic == nil || magic.(u32) != 0xCAFEBABE {
-        return Err(ClassFile, string, "Invalid class file") 
+        return Err(ClassFile, "Invalid class file") 
     }
     minor := read_u16_be(&reader)
     if minor == nil {
-        return Err(ClassFile, string, "Invalid class file")
+        return Err(ClassFile, "Invalid class file")
     }
     major := read_u16_be(&reader)
     if major == nil {
-        return Err(ClassFile, string, "Invalid class file")
+        return Err(ClassFile, "Invalid class file")
     }
     class.minor_version = minor.(u16)
     class.major_version = major.(u16)
     if class.major_version > JAVA_VERSION {
-        return Err(ClassFile, string, "Unsupported java version. Expected <= Java 8")
+        return Err(ClassFile, "Unsupported java version. Expected <= Java 8")
     }
     constcount := read_u16_be(&reader)
     if constcount == nil {
-        return Err(ClassFile, string, "Invalid class file")
+        return Err(ClassFile, "Invalid class file")
     }
     class.constant_pool = make([]ConstantPoolInfo, constcount.(u16) - 1)
     i: u16 = 0
     for i < constcount.(u16) - 1 {
         b := read_byte(&reader) 
         if b == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         switch b.(u8) {
             case 3:
                 value := read_u32_be(&reader)
                 if value == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 class.constant_pool[i] = IntegerInfo { value = transmute(i32)value.(u32) }
             case 4:
                 value := read_u32_be(&reader)
                 if value == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 class.constant_pool[i] = FloatInfo { value = transmute(f32)value.(u32) }
             case 5:
                 value := read_u64_be(&reader)
                 if value == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 class.constant_pool[i] = LongInfo { value = transmute(i64)value.(u64) }
@@ -618,7 +643,7 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             case 6:
                 value := read_u64_be(&reader)
                 if value == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 class.constant_pool[i] = DoubleInfo { value = transmute(f64)value.(u64) }
@@ -627,12 +652,12 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             case 9:
                 class_index := read_u16_be(&reader)
                 if class_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 name_and_type_index := read_u16_be(&reader) 
                 if name_and_type_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 fld := FieldRefInfo { class_index = class_index.(u16), name_and_type_index = name_and_type_index.(u16) }
@@ -640,12 +665,12 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             case 10:
                 class_index := read_u16_be(&reader)
                 if class_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 name_and_type_index := read_u16_be(&reader) 
                 if name_and_type_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 method := MethodRefInfo { class_index = class_index.(u16), name_and_type_index = name_and_type_index.(u16) }
@@ -653,12 +678,12 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             case 11:
                 class_index := read_u16_be(&reader)
                 if class_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 name_and_type_index := read_u16_be(&reader) 
                 if name_and_type_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 method := InterfaceMethodRefInfo { class_index = class_index.(u16), name_and_type_index = name_and_type_index.(u16) }
@@ -666,26 +691,26 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             case 8:
                 string_index := read_u16_be(&reader)
                 if string_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 class.constant_pool[i] = StringInfo { string_index = string_index.(u16) }
             case 7:
                 name_index := read_u16_be(&reader)
                 if name_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 class.constant_pool[i] = ClassInfo { name_index = name_index.(u16) }
             case 12:
                 name_index := read_u16_be(&reader)
                 if name_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 descriptor_index := read_u16_be(&reader) 
                 if descriptor_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 nm := NameAndTypeInfo { name_index = name_index.(u16), descriptor_index = descriptor_index.(u16) }
@@ -693,12 +718,12 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             case 15:
                 ref_kind := read_byte (&reader)
                 if ref_kind == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 reference_index := read_u16_be(&reader) 
                 if reference_index == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
 					return result 
                 }
                 methodhandle := MethodHandleInfo { reference_kind = cast(BytecodeBehaivour)ref_kind.(u8), reference_index = reference_index.(u16) }
@@ -706,7 +731,7 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             case 1:
                 length := read_u16_be(&reader)
                 if length == nil {
-                    result = Err(ClassFile, string, "Invalid class file") 
+                    result = Err(ClassFile, "Invalid class file") 
 					return result 
                 }
                 utf8bytes:[]u8 = make([]u8, length.(u16))
@@ -714,7 +739,7 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
                 for i in 0..<length.(u16) {
                     b = read_byte(&reader)
                     if b == nil {
-                        result = Err(ClassFile, string, "Invalid class file") 
+                        result = Err(ClassFile, "Invalid class file") 
 					    return result 
                     }
                     utf8bytes[i] = b.(u8)
@@ -729,40 +754,40 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
     }
     access_flags := read_u16_be(&reader)
     if access_flags == nil {
-        result = Err(ClassFile, string, "Invalid class file")
+        result = Err(ClassFile, "Invalid class file")
 		return result 
     }
-    class.access_flags = transmute(AccessFlags)access_flags.(u16)
+    class.access_flags = transmute(ClassAccessFlags)access_flags.(u16)
 
     this_class := read_u16_be(&reader)
     if this_class == nil {
-        result = Err(ClassFile, string, "Invalid class file")
+        result = Err(ClassFile, "Invalid class file")
 		return result 
     }
     class.this_class = this_class.(u16)
     super_class := read_u16_be(&reader)
     if super_class == nil {
-        result = Err(ClassFile, string, "Invalid class file")
+        result = Err(ClassFile, "Invalid class file")
 		return result 
     }
     class.super_class = super_class.(u16)
     interface_count := read_u16_be(&reader)
     if interface_count == nil {
-        result = Err(ClassFile, string, "Invalid class file")
+        result = Err(ClassFile, "Invalid class file")
 		return result 
     }
     class.interfaces = make([]u16, interface_count.(u16))
     for i in 0..<interface_count.(u16) {
         interface := read_u16_be(&reader)
         if interface == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         class.interfaces[i] = interface.(u16)
     }
     field_count := read_u16_be(&reader)
     if field_count == nil {
-        result = Err(ClassFile, string, "Invalid class file")
+        result = Err(ClassFile, "Invalid class file")
 		return result 
     }
 
@@ -770,35 +795,35 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
     for f in 0..<field_count.(u16) {
         access_flags := read_u16_be(&reader)
         if access_flags == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         name_index := read_u16_be(&reader)
         if name_index == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         descriptor_index := read_u16_be(&reader)
         if descriptor_index == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         attribute_count := read_u16_be(&reader)
         if attribute_count == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         attributes := make([]AttributeInfo, attribute_count.(u16))
         for attri in 0..<attribute_count.(u16) {
             attr := read_attr(&reader)
             if attr == nil {
-                result = Err(ClassFile, string, "Invalid class file")
+                result = Err(ClassFile, "Invalid class file")
 				return result 
             }
             attributes[attri] = attr.(AttributeInfo)
         }
         class.fields[f] = FieldInfo {
-            access_flags = transmute(AccessFlags)access_flags.(u16),
+            access_flags = transmute(MemberAccessFlags)access_flags.(u16),
             name_index = name_index.(u16),
             descriptor_index = descriptor_index.(u16),
             attributes = attributes,
@@ -806,43 +831,43 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
     }
     method_count := read_u16_be(&reader)
     if method_count == nil {
-        result = Err(ClassFile, string, "Invalid class file")
+        result = Err(ClassFile, "Invalid class file")
 		return result 
     }
     class.methods = make([]MethodInfo, method_count.(u16))
     for mi in 0..<method_count.(u16) {
         access_flags := read_u16_be(&reader)    
         if access_flags == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         name_index := read_u16_be(&reader)    
         if name_index == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         descriptor_index := read_u16_be(&reader)    
         if descriptor_index == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
 
         attribute_count := read_u16_be(&reader)    
         if attribute_count == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         attributes := make([]AttributeInfo, attribute_count.(u16))
         for attri in 0..<attribute_count.(u16) {
             attr := read_attr(&reader)
             if attr == nil {
-                result = Err(ClassFile, string, "Invalid class file")
+                result = Err(ClassFile, "Invalid class file")
 			    return result 
             }
             attributes[attri] = attr.(AttributeInfo)
         }
         class.methods[mi] = MethodInfo {
-            access_flags = transmute(AccessFlags)access_flags.(u16),
+            access_flags = transmute(MemberAccessFlags)access_flags.(u16),
             name_index = name_index.(u16),
             descriptor_index = descriptor_index.(u16),
             attributes = attributes,
@@ -850,14 +875,14 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
     }
     attr_count := read_u16_be(&reader)
     if attr_count == nil {
-        result = Err(ClassFile, string, "Invalid class file")
+        result = Err(ClassFile, "Invalid class file")
 		return result 
     }
     class.attributes = make([]AttributeInfo, attr_count.(u16))
     for attri in 0..<attr_count.(u16) {
         attr := read_attr(&reader)
         if attr == nil {
-            result = Err(ClassFile, string, "Invalid class file")
+            result = Err(ClassFile, "Invalid class file")
 			return result 
         }
         class.attributes[attri] = attr.(AttributeInfo)
@@ -872,55 +897,55 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             }
             max_stack := read_u16_be(&code_reader)
             if max_stack == nil {
-                result = Err(ClassFile, string, "Invalid code attribute")
+                result = Err(ClassFile, "Invalid code attribute")
                 return result 
             }
             max_locals := read_u16_be(&code_reader)
             if max_locals == nil {
-                result = Err(ClassFile, string, "Invalid code attribute")
+                result = Err(ClassFile, "Invalid code attribute")
                 return result 
             }
             code_length := read_u32_be(&code_reader)
             if code_length == nil {
-                result = Err(ClassFile, string, "Invalid code attribute")
+                result = Err(ClassFile, "Invalid code attribute")
                 return result 
             }
             if len(code_reader.bytes) - code_reader.position < cast(int)code_length.(u32) {
-                result = Err(ClassFile, string, "Invalid code attribute")
+                result = Err(ClassFile, "Invalid code attribute")
                 return result 
             }
             code_bytes := code_reader.bytes[code_reader.position:code_reader.position + cast(int)code_length.(u32)]
             code_reader.position += cast(int)code_length.(u32)
             instructions := parse_bytecode(&class, code_bytes)
             if instructions.is_err {
-                result = Err(ClassFile, string, instructions.error.(string))
+                result = Err(ClassFile, instructions.error.(string))
                 return result 
             }
             exception_table_length := read_u16_be(&code_reader)
             if exception_table_length == nil {
-                result = Err(ClassFile, string, "Invalid code attribute")
+                result = Err(ClassFile, "Invalid code attribute")
                 return result 
             }
             exception_table := make([]ExceptionInfo, exception_table_length.(u16))
             for i in 0..<len(exception_table) {
                 start_pc := read_u16_be(&code_reader)
                 if start_pc == nil {
-                    result = Err(ClassFile, string, "Invalid code attribute")
+                    result = Err(ClassFile, "Invalid code attribute")
                     return result 
                 }
                 end_pc := read_u16_be(&code_reader)
                 if end_pc == nil {
-                    result = Err(ClassFile, string, "Invalid code attribute")
+                    result = Err(ClassFile, "Invalid code attribute")
                     return result 
                 }
                 handler_pc := read_u16_be(&code_reader)
                 if handler_pc == nil {
-                    result = Err(ClassFile, string, "Invalid code attribute")
+                    result = Err(ClassFile, "Invalid code attribute")
                     return result 
                 }
                 catch_type := read_u16_be(&code_reader)
                 if catch_type == nil {
-                    result = Err(ClassFile, string, "Invalid code attribute")
+                    result = Err(ClassFile, "Invalid code attribute")
                     return result 
                 }
                 exception_table[i] = ExceptionInfo {
@@ -933,14 +958,14 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
                 
             attr_count := read_u16_be(&code_reader)
             if attr_count == nil {
-                result = Err(ClassFile, string, "Invalid class file")
+                result = Err(ClassFile, "Invalid class file")
                 return result 
             }
             code_attributes := make([]AttributeInfo, attr_count.(u16))
             for attri in 0..<attr_count.(u16) {
                 attr := read_attr(&code_reader)
                 if attr == nil {
-                    result = Err(ClassFile, string, "Invalid class file")
+                    result = Err(ClassFile, "Invalid class file")
                     return result 
                 }
                 code_attributes[attri] = attr.(AttributeInfo)
@@ -955,13 +980,13 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
         }
     }
 
-    return Ok(ClassFile, string, class)
+    return Ok(string, class)
 }
 parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instruction, string) {
     instructions := make([dynamic]Instruction)
     i := 0
     next_is_wide := false
-    result := shared.Ok([]Instruction, string, nil)
+    result := shared.Ok(string, cast([]Instruction)nil)
     defer if result.is_err {
         delete(instructions)
     }
@@ -980,7 +1005,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                         size = 4
                     }
                     if i + size >= len(bytes) {
-                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        result = shared.Err([]Instruction, "Invalid bytecode")
                         return result
                     }
                     index := 0
@@ -1002,7 +1027,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                         size = 2
                     }
                     if i + size >= len(bytes) {
-                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        result = shared.Err([]Instruction, "Invalid bytecode")
                         return result
                     }
                     index := 0
@@ -1020,11 +1045,11 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
             case .bipush, .ldc, 
                 .newarray:
                 if i + 1 >= len(bytes) {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 else if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = single_op_b(bytes[i + 1]) })
@@ -1045,7 +1070,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                  .fload_0, .fload_1, .fload_2, .fload_3:
                  
                 if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 instr, ok := hardcoded_opcodes[opcode]
@@ -1058,11 +1083,11 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 .sipush, .anewarray,
                 .checkcast, .instanceof, .new:
                 if i + 2 >= len(bytes) {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 else if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 value: u16 = cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8) 
@@ -1070,11 +1095,11 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 i += 2
                 case .ifeq, .ifge, .ifgt, .ifle, .iflt, .ifne, .ifnull, .ifnonnull, .if_acmpeq, .if_acmpne, .if_icmpeq, .if_icmpge, .if_icmpgt, .if_icmple, .if_icmplt, .if_icmpne:
                     if i + 2 >= len(bytes) {
-                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        result = shared.Err([]Instruction, "Invalid bytecode")
                         return result
                     }
                     else if next_is_wide {
-                        result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                        result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                         return result
                     }
                     value: int = cast(int)(transmute(i16)(cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8))) 
@@ -1083,11 +1108,11 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                     
             case .multianewarray:
                 if i + 3 >= len(bytes) {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 else if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 value: u16 = cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8) 
@@ -1097,11 +1122,11 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
 
             case .invokeinterface:
                 if i + 4 >= len(bytes) {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 else if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 value: u16 = cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8) 
@@ -1110,11 +1135,11 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 i += 4
             case .invokedynamic:
                 if i + 4 >= len(bytes) {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 else if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 value: u16 = cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8) 
@@ -1148,17 +1173,17 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 .athrow, .swap, .breakpoint,
                 .monitorexit, .monitorenter:
                 if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = nil})
             case .goto:
                 if i + 2 >= len(bytes) {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 else if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 value: int = cast(int)(transmute(i16)((cast(u16)bytes[i+1] << 8) | cast(u16)(bytes[i+2])))
@@ -1166,18 +1191,18 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 i += 2
             case .goto_w:
                 if i + 4 >= len(bytes) {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 else if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 branch := cast(int)transmute(i32)((cast(u32)bytes[i + 1] << 24) | (cast(u32)bytes[i + 2] << 16) | (cast(u32)bytes[i + 3] << 8) | (cast(u32)bytes[i + 4]))
                 append(&instructions, SimpleInstruction {offset = i, opcode = opcode, operand = single_op(branch + i)})
             case .wide:
                 if next_is_wide {
-                    result = shared.Err([]Instruction, string, "Invalid opcode after wide prefix")
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
                     return result
                 }
                 next_is_wide = true
@@ -1194,29 +1219,28 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 table_reader := Reader { bytes = bytes, position = i }
                 default := read_u32_be(&table_reader)
                 if default == nil {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 low := read_u32_be(&table_reader)
                 if low == nil {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 high := read_u32_be(&table_reader)
                 if high == nil {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 table := TableSwitch {}
                 table.default = cast(int)default.(u32) + start
                 table.low = cast(int)low.(u32)
                 table.high = cast(int)high.(u32)
-                fmt.println(table)
                 table.offsets = make([]int, table.high - table.low + 1)
                 for i in table.low..=table.high {
                     off := read_u32_be(&table_reader)
                     if off == nil {
-                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        result = shared.Err([]Instruction, "Invalid bytecode")
                         return result
                     }
                     table.offsets[i - table.low] = cast(int)off.(u32) + start
@@ -1235,12 +1259,12 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 table_reader := Reader { bytes = bytes, position = i }
                 default := read_u32_be(&table_reader)
                 if default == nil {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 npairs := read_u32_be(&table_reader)
                 if npairs == nil {
-                    result = shared.Err([]Instruction, string, "Invalid bytecode")
+                    result = shared.Err([]Instruction, "Invalid bytecode")
                     return result
                 }
                 lookup := LookupSwitch {
@@ -1253,12 +1277,12 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 for ip in 0..<len(lookup.pairs) {
                     key := read_u32_be(&table_reader)
                     if key == nil {
-                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        result = shared.Err([]Instruction, "Invalid bytecode")
                         return result
                     }
                     value := read_u32_be(&table_reader)
                     if value == nil {
-                        result = shared.Err([]Instruction, string, "Invalid bytecode")
+                        result = shared.Err([]Instruction, "Invalid bytecode")
                         return result
                     }
                     lookup.pairs[ip] = IntPair {
@@ -1273,7 +1297,25 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
         }
         i += 1
     }
-    return shared.Ok([]Instruction, string, instructions[:])    
+    return shared.Ok(string, instructions[:])    
+}
+resolve_type_from_name_and_type :: proc(class: ^ClassFile, index: u16) -> Maybe(string) {
+    if cast(int)index <= len(class.constant_pool) && index != 0 {
+        cl, isok := class.constant_pool[index - 1].(NameAndTypeInfo)
+        if isok {
+            return resolve_utf8(class, cl.descriptor_index)
+        }
+    }
+    return nil
+}
+resolve_field :: proc(class: ^ClassFile, index: u16) -> Maybe(FieldRefInfo) {
+    if cast(int)index <= len(class.constant_pool) && index != 0 {
+        cl, isok := class.constant_pool[index - 1].(FieldRefInfo)
+        if isok {
+            return cl
+        }
+    }
+    return nil
 }
 resolve_class_name :: proc(class: ^ClassFile, index: u16) -> Maybe(string) {
     if cast(int)index <= len(class.constant_pool) && index != 0 {
@@ -1394,7 +1436,6 @@ print_class_info :: proc(class: ClassFile) {
     for method in class.methods {
         print_flags(method.access_flags)
         classs := class
-        fmt.println(find_attr(&classs, method.attributes, "Code").(AttributeInfo).info)
         fmt.printf(" %s %s\n", class.constant_pool[method.descriptor_index - 1].(UTF8Info).str, class.constant_pool[method.name_index - 1].(UTF8Info).str)
         if method.bytecode != nil {
             code := method.bytecode.(CodeAttribute)
