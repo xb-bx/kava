@@ -5,13 +5,23 @@ public class String {
     private int offset;
     private int length;
 
+    public char charAt(int c) {
+        return data[offset + c];
+    }
     @Override
     public String toString() {
         return this;
     }
     @Override
     public int hashCode() {
-        return data[0];
+        int sum = 0;
+        for(int i = offset; i < length; i++) {
+            sum += data[i] * Math.pow(31, length - i - offset - 1);
+        }
+        return sum;
+    }
+    public static String valueOf(int num) { 
+        throw new NotImplementedException();
     }
     @Override
     public boolean equals(Object other) {
@@ -31,5 +41,8 @@ public class String {
             }
         }
         return false;
+    }
+    public String[] split(String str) {
+        throw new NotImplementedException();
     }
 }

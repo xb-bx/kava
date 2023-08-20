@@ -1,14 +1,15 @@
 package java.lang;
+
 public class StringBuilder {
     public StringBuilder append(char c) {
-        return this;
+        throw new NotImplementedException();
     }
     public StringBuilder append(String c) {
-        return this;
+        throw new NotImplementedException();
     }
     @Override
     public String toString() {
-        return "STRING";
+        throw new NotImplementedException();
     }
 
 }
