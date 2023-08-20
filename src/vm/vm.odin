@@ -55,7 +55,9 @@ make_array_type :: proc(vm: ^VM, type: ^Class) -> ^Class {
     typ.class_type = ClassType.Array
     typ.underlaying = type
     typ.super_class = vm.classes["java/lang/Object"]
+    typ.size = size_of(rawptr) * 3
     vm.classes[name] = typ 
+    
     return typ
 } 
 make_primitive :: proc(vm: ^VM, primitive: PrimitiveType, name: string) -> ^Class {
@@ -207,6 +209,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 class.fields[i] = fld
 
             }
+            calculate_class_size(class)
             class.methods = make([]Method, len(classfile.methods)) 
             for method,i in classfile.methods {
                 meth := Method {}
@@ -328,4 +331,16 @@ type_descriptor_to_type :: proc(vm: ^VM, descriptor: string) -> (shared.Result(^
             }
     }
     panic("Should not happen")
+}
+calculate_class_size :: proc(class: ^Class) {
+    size := size_of(rawptr) 
+    for field in class.fields {
+        if !hasFlag(field.access_flags, classparser.MemberAccessFlags.Static) {
+            size += size_of(rawptr)
+        }
+    }
+    if class.super_class != nil {
+        size += class.super_class.size
+    }
+    class.size = size
 }

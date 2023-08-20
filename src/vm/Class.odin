@@ -43,7 +43,8 @@ Class :: struct {
     class_file: ^classparser.ClassFile,
     class_type: ClassType,
     underlaying: ^Class,
-    dimensions: int,
     primitive: PrimitiveType,
+    size: int,
+
 
 }

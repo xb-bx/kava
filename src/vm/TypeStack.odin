@@ -1,28 +1,41 @@
 package vm
+StackType :: struct {
+    class: ^Class,
+    is_null: bool,
+}
 TypeStack :: struct {
-    types: []^Class,
+    types: []StackType,
     count: int,
     cap: int,
 }
-stack_pop :: proc(using stack: ^TypeStack) -> ^Class {
+stack_pop_class :: proc(using stack: ^TypeStack) -> ^Class { 
     if count == 0 {
         return nil
     }
     res := types[count - 1]
     count -= 1
+    return res.class
+}
+stack_pop :: proc(using stack: ^TypeStack) -> ^StackType {
+    if count == 0 {
+        return nil
+    }
+    res := &types[count - 1]
+    count -= 1
     return res
 }
-stack_push :: proc(using stack: ^TypeStack, type: ^Class) -> bool {
+stack_push :: proc(using stack: ^TypeStack, type: ^Class, is_null: bool = false) -> bool {
     if count == cap {
         return false
     }
-    types[count] = type
+    types[count].class = type
+    types[count].is_null = is_null
     count += 1
     return true
 }
 make_stack :: proc(cap: int) -> TypeStack {
     return TypeStack {
-        types = make([]^Class, cap),
+        types = make([]StackType, cap),
         cap = cap,
         count = 0,
     }
@@ -47,7 +60,7 @@ stack_eq :: proc(stack: ^TypeStack, other: ^TypeStack) -> bool {
     }
     for typ, i in stack.types {
         if i >= stack.count {break}
-        if typ != other.types[i] {
+        if typ.class != other.types[i].class {
             return false
         }
     }

@@ -65,7 +65,7 @@ main :: proc() {
         error(app.error.(string))
     }
     for class_name, class in vm.classes {
-        fmt.printf("Class %s\n", class_name)
+        fmt.printf("Class %s size: %i\n", class_name, class.size)
         for &method in class.methods {
             fmt.printf("  Method %s:%s\n", method.name, method.ret_type.name)
             blocks := (split_method_into_codeblocks(&vm, &method))
