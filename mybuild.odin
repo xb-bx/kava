@@ -24,8 +24,11 @@ main :: proc() {
         }
         cd("..")
     }
+    if !os.exists("x86asm") {
+        run("git", "clone", "https://github.com/xb-bx/x86asm")
+    }
     args := os.args[1:]
-    collections: map[string]string = {"zip" = "odin-zip/src",  "kava" = "src", "libzip" = "odin-zip/libzip", }
+    collections: map[string]string = {"zip" = "odin-zip/src",  "kava" = "src", "libzip" = "odin-zip/libzip", "x86asm" = "x86asm/src" }
     additional := [?]string {"-debug"}
     odin_build("src/classparser", output = CLASSPARSER_EXE, collections = collections, additional_args = additional[:])
     odin_build("src/vm", output = KAVA_EXE, collections = collections, additional_args = additional[:])

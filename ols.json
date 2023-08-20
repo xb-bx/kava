@@ -3,6 +3,7 @@
 	"collections": [
 		{ "name": "kava", "path": "src" },
 		{ "name": "zip", "path": "odin-zip/src" }
+		{ "name": "x86asm", "path": "x86asm/src" }
 	],
 	"enable_semantic_tokens": true,
 	"enable_document_symbols": true,

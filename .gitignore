@@ -3,3 +3,4 @@ build
 nobuild.odin
 *.class
 odin-zip
+x86asm
