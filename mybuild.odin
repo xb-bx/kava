@@ -17,7 +17,7 @@ main :: proc() {
         run("git", "clone", "https://github.com/xb-bx/odin-zip")
         cd("odin-zip")
         when ODIN_OS == .Windows {
-            run("./build.bat")
+            run("build.bat")
         }
         else {
             run("./build.sh")
