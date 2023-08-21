@@ -21,6 +21,8 @@ Field :: struct {
     name: string,
     type: ^Class,
     access_flags: classparser.MemberAccessFlags,
+    offset: i32,
+    static_data: int,
 
 }
 Method :: struct {
@@ -40,12 +42,13 @@ Class :: struct {
     interfaces: []^Class,
     access_flags: classparser.ClassAccessFlags,
     fields: []Field,
+    instance_fields: []^Field,
     methods: []Method,
     class_file: ^classparser.ClassFile,
     class_type: ClassType,
     underlaying: ^Class,
     primitive: PrimitiveType,
     size: int,
-
+    size_without_header: int,
 
 }

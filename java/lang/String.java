@@ -1,12 +1,12 @@
 package java.lang;
 
 public class String {
-    private char[] data;
+    private char[] value;
     private int offset;
     private int length;
 
     public char charAt(int c) {
-        return data[offset + c];
+        return value[offset + c];
     }
     @Override
     public String toString() {
@@ -16,7 +16,7 @@ public class String {
     public int hashCode() {
         int sum = 0;
         for(int i = offset; i < length; i++) {
-            sum += data[i] * Math.pow(31, length - i - offset - 1);
+            sum += value[i] * Math.pow(31, length - i - offset - 1);
         }
         return sum;
     }
@@ -35,7 +35,7 @@ public class String {
                     return false;
                 }
                 for(int i = 0; i < this.length; i++) {
-                    if (this.data[i] != others.data[i]) return false;
+                    if (this.value[i] != others.value[i]) return false;
                 }
                 return true;
             }

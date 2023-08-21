@@ -204,6 +204,30 @@ get_methodrefconst_method :: proc(vm: ^VM, classfile: ^classparser.ClassFile, in
     }
     return Ok(string, method) 
 }
+get_fieldrefconst_field :: proc(vm: ^VM, classfile: ^classparser.ClassFile, index: int) -> shared.Result(^Field, string) {
+    using shared
+    using classparser
+    fieldr := resolve_field(classfile, cast(u16)index)
+    if fieldr == nil {
+        return Err(^Field, "Invalid bytecode")
+    }
+    field := fieldr.(FieldRefInfo)
+    typename := resolve_class_name(classfile, field.class_index)
+    if typename == nil {
+        return Err(^Field, "Invalid bytecode")
+    }
+    type := load_class(vm, typename.(string))
+    if type.is_err {
+        return Err(^Field, type.error.(string))
+    }    
+    class := type.value.(^Class)
+    for &field in class.fields {
+        if field.name == field.name {
+            return Ok(string, &field)
+        }
+    }
+    return Err(^Field, "Invalid bytecode. Could not find field")
+}
 get_fieldrefconst_class :: proc(vm: ^VM, classfile: ^classparser.ClassFile, index: int) -> shared.Result(^Class, string) {
     using shared
     using classparser

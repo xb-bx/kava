@@ -8,11 +8,13 @@ import "core:strings"
 import "core:path/filepath"
 import "core:slice"
 import "core:intrinsics"
+import "core:runtime"
 
 VM :: struct {
     classpaths: []string,
     classes: map[string]^Class,
     object: ^Class,
+    ctx: runtime.Context,
 }
 primitive_names: map[PrimitiveType]string = {
     PrimitiveType.Int = "int",
@@ -36,6 +38,17 @@ primitive_descriptors : map[PrimitiveType]string = {
     PrimitiveType.Void = "V",
     PrimitiveType.Boolean = "Z",
 }
+primitive_sizes : map[PrimitiveType]int = {
+    PrimitiveType.Int = 4,
+    PrimitiveType.Char = 2,
+    PrimitiveType.Byte = 1,
+    PrimitiveType.Short = 2,
+    PrimitiveType.Float = 4,
+    PrimitiveType.Double = 8,
+    PrimitiveType.Long = 8,
+    PrimitiveType.Void = 0,
+    PrimitiveType.Boolean = 1,
+}
 hasFlag :: proc(flags: $T, flag: T) -> bool 
     where intrinsics.type_is_enum(T) {
     return cast(int)flags & cast(int)flag > 0
@@ -55,12 +68,12 @@ make_array_type :: proc(vm: ^VM, type: ^Class) -> ^Class {
     typ.class_type = ClassType.Array
     typ.underlaying = type
     typ.super_class = vm.classes["java/lang/Object"]
-    typ.size = size_of(rawptr) * 3
+    typ.size = size_of(ArrayHeader)
     vm.classes[name] = typ 
     
     return typ
 } 
-make_primitive :: proc(vm: ^VM, primitive: PrimitiveType, name: string) -> ^Class {
+make_primitive :: proc(vm: ^VM, primitive: PrimitiveType, name: string, size: int) -> ^Class {
     if class, found := vm.classes[name]; found {
         return class
     }
@@ -68,6 +81,7 @@ make_primitive :: proc(vm: ^VM, primitive: PrimitiveType, name: string) -> ^Clas
     type.class_type = ClassType.Primitive
     type.name = name
     type.primitive = primitive
+    type.size = size
     vm.classes[name] = type
     return type
 }
@@ -189,6 +203,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
 
             }
             class.fields = make([]Field, len(classfile.fields))
+            instance_fields := make([dynamic]^Field) 
             for field,i in classfile.fields {
                 fld := Field {}
                 name := resolve_utf8(classfile, field.name_index)
@@ -207,8 +222,12 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 }
                 fld.type = t.value.(^Class)
                 class.fields[i] = fld
+                if !hasFlag(fld.access_flags, MemberAccessFlags.Static) {
+                    append(&instance_fields, &class.fields[i]) 
+                }
 
             }
+            class.instance_fields = instance_fields[:]
             calculate_class_size(class)
             class.methods = make([]Method, len(classfile.methods)) 
             for method,i in classfile.methods {
@@ -336,14 +355,28 @@ type_descriptor_to_type :: proc(vm: ^VM, descriptor: string) -> (shared.Result(^
     panic("Should not happen")
 }
 calculate_class_size :: proc(class: ^Class) {
-    size := size_of(rawptr) 
-    for field in class.fields {
-        if !hasFlag(field.access_flags, classparser.MemberAccessFlags.Static) {
+    size := 0 
+    startoffset: i32 = size_of(ObjectHeader)
+    if class.super_class != nil && class.super_class.instance_fields != nil && len(class.super_class.instance_fields) > 0 {
+        if class.super_class.size == 0 {
+            calculate_class_size(class.super_class)
+        }
+        startoffset = class.super_class.instance_fields[len(class.super_class.instance_fields) - 1].offset + size_of(rawptr)
+    }
+    if class.instance_fields != nil {
+        for field in class.instance_fields {
+            assert(field != nil)
             size += size_of(rawptr)
+            field.offset = startoffset
+            startoffset += size_of(rawptr)
         }
     }
     if class.super_class != nil {
-        size += class.super_class.size
+        if class.size == 0 {
+            calculate_class_size(class.super_class)
+        }
+        size += class.super_class.size_without_header
     }
-    class.size = size
+    class.size = size + size_of(ObjectHeader)
+    class.size_without_header = size
 }

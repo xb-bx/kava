@@ -56,9 +56,10 @@ main :: proc() {
     vm := VM {
         classpaths = classpaths,
         classes = make(map[string]^Class),
+        ctx = context,
     }
     for prim in PrimitiveType {
-        make_primitive(&vm, prim, primitive_names[prim])
+        make_primitive(&vm, prim, primitive_names[prim], primitive_sizes[prim])
     }
     app := load_class(&vm, application)
     if app.is_err {
@@ -82,13 +83,15 @@ main :: proc() {
                 print_codeblock(&block)
             }
             {
-                bytes := jit_method(&vm, &method, blocks.value.([]CodeBlock))
-                for b in bytes {
-                    fmt.printf("%2X", b)
-                }
-                fmt.println()
-
+                jit_method(&vm, &method, blocks.value.([]CodeBlock))
             }
+        }
+    }
+    for method in app.value.(^Class).methods {
+        if method.name == "main" {
+            val := (transmute(proc "c"() -> int) method.jitted_body)()
+            fmt.println(val)
+            return
         }
     }
 //     for k,v in vm.classes {
