@@ -81,6 +81,14 @@ main :: proc() {
             for &block in blocks.value.([]CodeBlock) {
                 print_codeblock(&block)
             }
+            {
+                bytes := jit_method(&vm, &method, blocks.value.([]CodeBlock))
+                for b in bytes {
+                    fmt.printf("%2X", b)
+                }
+                fmt.println()
+
+            }
         }
     }
 //     for k,v in vm.classes {

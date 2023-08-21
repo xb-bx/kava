@@ -265,6 +265,9 @@ parse_method_descriptor :: proc(vm: ^VM, method: ^Method, descriptor: string) ->
         if type.is_err {
             return type.error.(string)
         }
+        if type.value.(^Class).primitive == PrimitiveType.Double || type.value.(^Class).primitive == PrimitiveType.Long {
+            append(&types, type.value.(^Class))
+        }
         append(&types, type.value.(^Class))
         i += read
     }

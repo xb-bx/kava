@@ -296,7 +296,13 @@ verification_error :: proc(msg: string, method: ^Method, instr: classparser.Inst
         instruction = instr,
     }
 }
-calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, method: ^Method) -> Maybe(VerificationError) {
+print_stack :: proc(stack: ^TypeStack) {
+    for i in 0..<stack.count {
+        fmt.printf("%s ", stack.types[i].class.name)
+    }
+    fmt.println()
+}
+calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_method: ^Method) -> Maybe(VerificationError) {
     using classparser
     if cb.visited == true {
         return nil
@@ -311,231 +317,246 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, method: ^
         #partial switch get_instr_opcode(instr) {
             case .aconst_null:
                 if !stack_push(stack, vm.object, true) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .bipush, .sipush:
                 if !stack_push(stack, vm.classes["int"]) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .getstatic:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                type := get_fieldrefconst_type(vm, method.parent.class_file, index)
+                type := get_fieldrefconst_type(vm, this_method.parent.class_file, index)
                 if type.is_err {
-                    return verification_error(type.error.(string), method, instr)
+                    return verification_error(type.error.(string), this_method, instr)
                 }
                 if !stack_push(stack, type.value.(^Class)) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
                 
             case .putstatic:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                type := get_fieldrefconst_type(vm, method.parent.class_file, index)
+                type := get_fieldrefconst_type(vm, this_method.parent.class_file, index)
                 if type.is_err {
-                    return verification_error(type.error.(string), method, instr)
+                    return verification_error(type.error.(string), this_method, instr)
                 }
                 typ := stack_pop(stack)
                 if typ == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if type.value.(^Class) != typ.class && !is_stacktype_subtype_of(typ, type.value.(^Class)) {
-                    return verification_error("Invalid bytecode. Wrong value type", method, instr)
+                    return verification_error("Invalid bytecode. Wrong value type", this_method, instr)
                 }
             case .getfield:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                type := get_fieldrefconst_type(vm, method.parent.class_file, index)
+                type := get_fieldrefconst_type(vm, this_method.parent.class_file, index)
                 if type.is_err {
-                    return verification_error(type.error.(string), method, instr)
+                    return verification_error(type.error.(string), this_method, instr)
                 }
                 typ := stack_pop(stack)
                 if typ == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
-                containingType := get_fieldrefconst_class(vm, method.parent.class_file, index)
+                containingType := get_fieldrefconst_class(vm, this_method.parent.class_file, index)
                 if containingType.is_err {
-                    return verification_error(containingType.error.(string), method, instr)
+                    return verification_error(containingType.error.(string), this_method, instr)
                 }
                 if typ.class != containingType.value.(^Class) && (!is_stacktype_subtype_of(typ, containingType.value.(^Class))) {
-                    return verification_error("Invalid bytecode. Wrong instance type" , method, instr)
+                    return verification_error("Invalid bytecode. Wrong instance type", this_method, instr)
                 }
                 if !stack_push(stack, type.value.(^Class)) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .astore:
                 t := stack_pop(stack)
                 if t == nil || !is_reference_type(vm, t.class) {
-                    return verification_error("Invalid bytecode. Expected reference-type", method, instr)
+                    return verification_error("Invalid bytecode. Expected reference-type", this_method, instr)
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if method.locals[index] == nil {
-                    method.locals[index] = t.class
+                if this_method.locals[index] == nil {
+                    this_method.locals[index] = t.class
                 }
-                else if !is_stacktype_subtype_of(t, method.locals[index]) && t.class != method.locals[index] {
-                    return verification_error("Invalid bytecode. Wrong value type", method, instr)
+                else if !is_stacktype_subtype_of(t, this_method.locals[index]) && t.class != this_method.locals[index] {
+                    return verification_error("Invalid bytecode. Wrong value type", this_method, instr)
                 }
+            case .dstore:
+                t := stack_pop_class(stack)
+                if t == nil || t.name != "double" {
+                    return verification_error("Invalid bytecode. Expected integer on stack before istore operation", this_method, instr)
+                }
+                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+                if this_method.locals[index] == nil {
+                    this_method.locals[index] = t
+                }
+            case .dload:
+                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+                if index >= len(this_method.locals) || this_method.locals[index].name != "double" {
+                    return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
+                }
+                stack_push(stack, this_method.locals[index])
             case .istore:
                 t := stack_pop_class(stack)
                 if t == nil || !type_is_integer(t) {
-                    return verification_error("Invalid bytecode. Expected integer on stack before istore operation", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer on stack before istore operation", this_method, instr)
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if method.locals[index] == nil {
-                    method.locals[index] = t
+                if this_method.locals[index] == nil {
+                    this_method.locals[index] = t
                 }
             case .iload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if index >= len(method.locals) || !type_is_integer(method.locals[index]) {
-                    return verification_error("Invalid bytecode. Expected integer local variable", method, instr)
+                if index >= len(this_method.locals) || !type_is_integer(this_method.locals[index]) {
+                    return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
                 }
-                stack_push(stack, method.locals[index])
+                stack_push(stack, this_method.locals[index])
             case .aload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if index >= len(method.locals) || (method.locals[index] != vm.object &&  !is_subtype_of(method.locals[index], vm.object)) {
-                    return verification_error("Invalid bytecode. Expected reference-type local variable", method, instr)
+                if index >= len(this_method.locals) || (this_method.locals[index] != vm.object &&  !is_subtype_of(this_method.locals[index], vm.object)) {
+                    return verification_error("Invalid bytecode. Expected reference-type local variable", this_method, instr)
                 }
-                stack_push(stack, method.locals[index])
+                stack_push(stack, this_method.locals[index])
                 
             case .tableswitch:
                 canEscape = false
                 t := stack_pop_class(stack) 
                 if t == nil || !type_is_integer(t) {
-                    return verification_error("Invalid bytecode. Expected integer on stack before istore operation", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer on stack before istore operation", this_method, instr)
                 }
                 table := instr.(classparser.TableSwitch)
                 for offset in table.offsets {
                     block := find_codeblock_by_start(cblocks, offset)         
                     if block == nil {
-                        return verification_error("Invalid bytecode. Invalid jump offset", method, instr)
+                        return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
                     }
                     if block.stack_at_start == nil {
                         block.stack_at_start = new_clone(copy_stack(stack^))
-                        res := calculate_stack(vm, block, cblocks, method)
+                        res := calculate_stack(vm, block, cblocks, this_method)
                         if res != nil {
                             return res
                         }
                     }
                     else if !stack_eq(block.stack_at_start, stack) {
-                        return verification_error("Invalid bytecode. Inconsistent stack", method, instr)
+                        return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                     }
                 }
                 default_block := find_codeblock_by_start(cblocks, table.default)
                 if default_block == nil {
-                    return verification_error("Invalid bytecode. Invalid jump offset", method, instr)
+                    return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
                 }
                 if default_block.stack_at_start == nil {
                     default_block.stack_at_start = new_clone(copy_stack(stack^))
                     
-                    res := calculate_stack(vm, default_block, cblocks, method)
+                    res := calculate_stack(vm, default_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
                 else if !stack_eq(default_block.stack_at_start, stack) {
-                    return verification_error("Invalid bytecode. Inconsistent stack", method, instr)
+                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .ldc2_w:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                typ := get_constant_type(vm, method.parent.class_file, index)
+                typ := get_constant_type(vm, this_method.parent.class_file, index)
                 if typ.is_err {
-                    return verification_error(typ.error.(string), method, instr)
+                    return verification_error(typ.error.(string), this_method, instr)
                 }
                 if !stack_push(stack, typ.value.(^Class)) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .ldc:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                typ := get_constant_type(vm, method.parent.class_file, index)
+                typ := get_constant_type(vm, this_method.parent.class_file, index)
                 if typ.is_err {
-                    return verification_error(typ.error.(string), method, instr)
+                    return verification_error(typ.error.(string), this_method, instr)
                 }
                 if !stack_push(stack, typ.value.(^Class)) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .new:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                typ := get_class(vm, method.parent.class_file, index)
+                typ := get_class(vm, this_method.parent.class_file, index)
                 if typ.is_err {
-                    return verification_error(typ.error.(string), method, instr)
+                    return verification_error(typ.error.(string), this_method, instr)
                 }
                 if typ.value.(^Class) != vm.object && !is_subtype_of(typ.value.(^Class), vm.object) {
-                    return verification_error("Invalid bytecode. Expected reference type", method, instr)
+                    return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
                 }
                 if !stack_push(stack, typ.value.(^Class)) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 } 
             case .instanceof:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                typ := get_class(vm, method.parent.class_file, index)
+                typ := get_class(vm, this_method.parent.class_file, index)
                 if typ.is_err {
-                    return verification_error(typ.error.(string), method, instr)
+                    return verification_error(typ.error.(string), this_method, instr)
                 }
                 if typ.value.(^Class) != vm.object && !is_subtype_of(typ.value.(^Class), vm.object) {
-                    return verification_error("Invalid bytecode. Expected reference type", method, instr)
+                    return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
                 }
                 instance := stack_pop(stack)
                 if instance == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !is_reference_type(vm, instance.class) {
-                    return verification_error("Invalid bytecode. Expected reference type", method, instr)
+                    return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
                 }
                 if !stack_push(stack, vm.classes["boolean"]) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 } 
             case .checkcast:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                typ := get_class(vm, method.parent.class_file, index)
+                typ := get_class(vm, this_method.parent.class_file, index)
                 if typ.is_err {
-                    return verification_error(typ.error.(string), method, instr)
+                    return verification_error(typ.error.(string), this_method, instr)
                 }
                 if typ.value.(^Class) != vm.object && !is_subtype_of(typ.value.(^Class), vm.object) {
-                    return verification_error("Invalid bytecode. Expected reference type", method, instr)
+                    return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
                 }
                 instance := stack_pop(stack)
                 if instance == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !is_reference_type(vm, instance.class) {
-                    return verification_error("Invalid bytecode. Expected reference type", method, instr)
+                    return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
                 }
                 if !stack_push(stack, typ.value.(^Class)) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 } 
                 
             case .castore:
                 if stack.count < 3 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value := stack_pop_class(stack)
                 index := stack_pop_class(stack)
                 array := stack_pop(stack)
                 if !type_is_integer(value) {
-                    return verification_error("Invalid bytecode. value must be reference type" , method, instr)
+                    return verification_error("Invalid bytecode. value must be reference type", this_method, instr)
                 }
                 if !type_is_integer(index) {
-                    return verification_error("Invalid bytecode. Index must be integer" , method, instr)
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
                 }
                 if !is_stacktype_array_of(array, value) {
-                    return verification_error("Invalid bytecode. Expected array of chars" , method, instr)
+                    return verification_error("Invalid bytecode. Expected array of chars", this_method, instr)
                 }
             case .aastore:
                 if stack.count < 3 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value := stack_pop(stack)
                 index := stack_pop_class(stack)
                 array := stack_pop(stack)
                 if !is_stacktype_subtype_of(value, vm.object) {
-                    return verification_error("Invalid bytecode. value must be reference type" , method, instr)
+                    return verification_error("Invalid bytecode. value must be reference type", this_method, instr)
                 }
                 if !type_is_integer(index) {
-                    return verification_error("Invalid bytecode. Index must be integer" , method, instr)
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
                 }
                 if !is_stacktype_array_of(array, value.class) {
-                    return verification_error("Invalid bytecode. Index must be integer" , method, instr)
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
                 }
             case ._return:
-                if method.ret_type != vm.classes["void"] {
-                    return verification_error("Invalid bytecode. Cannot return void from method", method, instr)
+                if this_method.ret_type != vm.classes["void"] {
+                    return verification_error("Invalid bytecode. Cannot return void from method", this_method, instr)
                 }
                 canEscape = false
 
@@ -543,49 +564,49 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, method: ^
             case .dreturn:
                 ret_type := stack_pop_class(stack)
                 if ret_type == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack1", method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack1", this_method, instr)
                 }
-                if ret_type != method.ret_type || ret_type != vm.classes["double"] {
-                    return verification_error("Invalid bytecode. Wrong return type", method, instr)
+                if ret_type != this_method.ret_type || ret_type != vm.classes["double"] {
+                    return verification_error("Invalid bytecode. Wrong return type", this_method, instr)
                 }
                 canEscape = false
             case .ireturn:
                 ret_type := stack_pop_class(stack)
                 if ret_type == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack1", method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack1", this_method, instr)
                 }
-                if ret_type != method.ret_type && !type_is_integer(ret_type) {
-                    return verification_error("Invalid bytecode. Wrong return type", method, instr)
+                if ret_type != this_method.ret_type && !type_is_integer(ret_type) {
+                    return verification_error("Invalid bytecode. Wrong return type", this_method, instr)
                 }
                 canEscape = false
             case .areturn:
                 ret_type := stack_pop(stack)
                 if ret_type == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack", method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
-                if ret_type.class != method.ret_type && !is_stacktype_subtype_of(ret_type, method.ret_type)  {
-                    return verification_error("Invalid bytecode. Wrong return type", method, instr)
+                if ret_type.class != this_method.ret_type && !is_stacktype_subtype_of(ret_type, this_method.ret_type)  {
+                    return verification_error("Invalid bytecode. Wrong return type", this_method, instr)
                 }
                 canEscape = false
             case .athrow:
                 exc_type := stack_pop(stack)
                 if exc_type == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack", method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if exc_type.class != vm.classes["java/lang/Throwable"] && !is_stacktype_subtype_of(exc_type, vm.classes["java/lang/Throwable"])  {
-                    return verification_error("Invalid bytecode. Wrong exception type", method, instr)
+                    return verification_error("Invalid bytecode. Wrong exception type", this_method, instr)
                 }
                 canEscape = false
                 
             case .invokestatic:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                methodres := get_methodrefconst_method(vm, method.parent.class_file, index)
+                methodres := get_methodrefconst_method(vm, this_method.parent.class_file, index)
                 if methodres.is_err {
-                    return verification_error(methodres.error.(string), method, instr)
+                    return verification_error(methodres.error.(string), this_method, instr)
                 }
                 method := methodres.value.(^Method)
                 if !hasFlag(method.access_flags, MemberAccessFlags.Static) {
-                    return verification_error("Invalid bytecode. Expected static method", method, instr)
+                    return verification_error("Invalid bytecode. Expected static method", this_method, instr)
                 
                 }
                 stack_size := len(method.args)
@@ -593,199 +614,201 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, method: ^
                 
                 slice.reverse(reversed_args)
                 defer delete(reversed_args)
-                for arg, i in reversed_args {
+                argi := 0
+                for argi < len(reversed_args) {
+                    arg := reversed_args[argi]
                     typ := stack_pop(stack)
                     if typ == nil {
-                        return verification_error("Invalid bytecode. Not enough items on stack", method, instr)
+                        return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                     }
                     if typ.class != arg && !is_stacktype_subtype_of(typ, arg) && !(type_is_integer(typ.class) && type_is_integer(arg)) {
-                        return verification_error("Invalid bytecode. Wrong argument type", method, instr)
+                        return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
-                }
-                if !hasFlag(method.access_flags, MemberAccessFlags.Static) {
-                    this := stack_pop(stack) 
-                    if this == nil {
-                        return verification_error("Invalid bytecode. Not enough items on stack", method, instr)
+                    if typ.class.name == "double" || typ.class.name == "long" {
+                        argi += 1
                     }
-                    if this.class != method.parent && !is_stacktype_subtype_of(this, method.parent) {
-                        return verification_error("Invalid bytecode. Wrong argument type", method, instr)
-                    }
+                    argi += 1
                 }
                 if method.ret_type != vm.classes["void"] {
                     if !stack_push(stack, method.ret_type) {
-                        return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                        return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                     }
                 }
             case .invokespecial, .invokevirtual:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                methodres := get_methodrefconst_method(vm, method.parent.class_file, index)
+                methodres := get_methodrefconst_method(vm, this_method.parent.class_file, index)
                 if methodres.is_err {
-                    return verification_error(methodres.error.(string), method, instr)
+                    return verification_error(methodres.error.(string), this_method, instr)
                 }
                 method := methodres.value.(^Method)
                 stack_size := len(method.args)
                 reversed_args := slice.clone(method.args)
                 slice.reverse(reversed_args)
                 defer delete(reversed_args)
-                for arg, i in reversed_args {
+                argi := 0
+                for argi < len(reversed_args) {
+                    arg := reversed_args[argi]
                     typ := stack_pop(stack)
                     if typ == nil {
-                        return verification_error("Invalid bytecode. Not enough items on stack", method, instr)
+                        return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                     }
                     if typ.class != arg && !is_stacktype_subtype_of(typ, arg) && !(type_is_integer(typ.class) && type_is_integer(arg)) {
-//                         panic("Invalid bytecode. Wrong argument type")
-                        return verification_error("Invalid bytecode. Wrong argument type", method, instr)
+                        return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
+                    if typ.class.name == "double" || typ.class.name == "long" {
+                        argi += 1
+                    }
+                    argi += 1
                 }
                 if !hasFlag(method.access_flags, MemberAccessFlags.Static) {
                     this := stack_pop(stack) 
                     if this == nil {
-                        return verification_error("Invalid bytecode. Not enough items on stack", method, instr)
+                        return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                     }
                     if this.class != method.parent && !is_stacktype_subtype_of(this, method.parent) {
-                        return verification_error("Invalid bytecode. Wrong argument type", method, instr)
+                        return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
                 }
                 if method.ret_type != vm.classes["void"] {
                     if !stack_push(stack, method.ret_type) {
-                        return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                        return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                     }
                 }
             case .iconst_0, .iconst_1, .iconst_2, .iconst_3, .iconst_4, .iconst_5, .iconst_m1:
                 if !stack_push(stack, vm.classes["int"]) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .iinc:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
-                t := method.locals[index] == nil ? vm.classes["int"] : method.locals[index]
+                t := this_method.locals[index] == nil ? vm.classes["int"] : this_method.locals[index]
                 if !type_is_integer(t) {
-                    return verification_error("Invalid bytecode. Expected integer value", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
             case .if_icmpeq, .if_icmpge, .if_icmpgt, .if_icmple, .if_icmplt, .if_icmpne:
                 if stack.count < 2 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value2 := stack_pop_class(stack)
                 value1 := stack_pop_class(stack)
                 if !type_is_integer(value2) || !type_is_integer(value1) {
-                    return verification_error("Invalid bytecode. Expected integer value", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 next_block := find_codeblock_by_start(cblocks, instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op)
                 if next_block == nil {
-                    return verification_error("Invalid bytecode. Invalid jump offset", method, instr)
+                    return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    res := calculate_stack(vm, next_block, cblocks, method)
+                    res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
                 else if !stack_eq(next_block.stack_at_start, stack) {
-                    return verification_error("Invalid bytecode. Inconsistent stack", method, instr)
+                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .if_acmpne, .if_acmpeq:
                 if stack.count < 2 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value2 := stack_pop(stack)
                 value1 := stack_pop(stack)
                 if !is_reference_type(vm, value2.class) || !is_reference_type(vm, value1.class) {
-                    return verification_error("Invalid bytecode. Expected reference-type value", method, instr)
+                    return verification_error("Invalid bytecode. Expected reference-type value", this_method, instr)
                 }
                 next_block := find_codeblock_by_start(cblocks, instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op)
                 if next_block == nil {
-                    return verification_error("Invalid bytecode. Invalid jump offset", method, instr)
+                    return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    res := calculate_stack(vm, next_block, cblocks, method)
+                    res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
                 else if !stack_eq(next_block.stack_at_start, stack) {
-                    return verification_error("Invalid bytecode. Inconsistent stack", method, instr)
+                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .dup:
                 if stack.count == 0 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 t := stack_pop(stack)
                 if !stack_push(stack, t.class, t.is_null) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
                 if !stack_push(stack, t.class, t.is_null) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
 
             case .aaload:
                 index := stack_pop_class(stack)
                 if index == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !type_is_integer(index) {
-                    return verification_error("Invalid bytecode. Expected integer on stack", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer on stack", this_method, instr)
                 }
                 arr := stack_pop(stack)
                 if arr == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !is_stacktype_array_of(arr, vm.object) {
-                    return verification_error("Invalid bytecode. Expected array of objects", method, instr)
+                    return verification_error("Invalid bytecode. Expected array of objects", this_method, instr)
                 }
                 stack_push(stack, arr.class.underlaying)
             case .caload:
                 index := stack_pop_class(stack)
                 if index == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !type_is_integer(index) {
-                    return verification_error("Invalid bytecode. Expected integer on stack", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer on stack", this_method, instr)
                 }
                 arr := stack_pop(stack)
                 if arr == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !is_stacktype_array_of(arr, vm.classes["char"]) {
-                    return verification_error("Invalid bytecode. Expected array of chars", method, instr)
+                    return verification_error("Invalid bytecode. Expected array of chars", this_method, instr)
                 }
                 if !stack_push(stack, vm.classes["char"]) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .ifeq, .ifge, .ifgt, .ifle, .iflt, .ifne:
                 typ := stack_pop_class(stack)
                 if !type_is_integer(typ) {
-                    return verification_error("Invalid bytecode. Expected integer on stack", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer on stack", this_method, instr)
                 }
                 next_block := find_codeblock_by_start(cblocks, instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op)
                 if next_block == nil {
-                    return verification_error("Invalid bytecode. Invalid jump offset", method, instr)
+                    return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    res := calculate_stack(vm, next_block, cblocks, method)
+                    res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
                 else if !stack_eq(next_block.stack_at_start, stack) {
-                    return verification_error("Invalid bytecode. Inconsistent stack", method, instr)
+                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .goto, .goto_w:
                 next_block := find_codeblock_by_start(cblocks, instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op)
                 if next_block == nil {
-                    return verification_error("Invalid bytecode. Invalid jump offset", method, instr)
+                    return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    res := calculate_stack(vm, next_block, cblocks, method)
+                    res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
                 else if !stack_eq(next_block.stack_at_start, stack) {
-                    return verification_error("Invalid bytecode. Inconsistent stack", method, instr)
+                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
                 canEscape = false
             case .multianewarray:
@@ -793,17 +816,17 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, method: ^
                 dimensions := instr.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op2
                 
                 if stack.count < dimensions {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 for i in 0..<dimensions {
                     indextyp := stack_pop_class(stack)
                     if !type_is_integer(indextyp) {
-                        return verification_error("Invalid bytecode. Index must be integer" , method, instr)
+                        return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
                     }
                 }
-                cl := get_class(vm, method.parent.class_file, index)
+                cl := get_class(vm, this_method.parent.class_file, index)
                 if cl.is_err {
-                    return verification_error(cl.error.(string), method, instr)
+                    return verification_error(cl.error.(string), this_method, instr)
                 }
                 stack_push(stack, cl.value.(^Class))
             case .aload_0, .aload_1, .aload_2, .aload_3,
@@ -819,55 +842,57 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, method: ^
                 panic("should not happen")
             case .dconst_0, .dconst_1:
                 if !stack_push(stack, vm.classes["double"]) {
-                    return verification_error("Invalid bytecode. Exceeded max_stack", method, instr)
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             
             case .d2i:
                 t := stack_pop_class(stack)
                 if t == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if t != vm.classes["double"] {
-                    return verification_error("Invalid bytecode. Expected double value", method, instr)
+                    return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
             case .i2d:
                 t := stack_pop_class(stack)
                 if t == nil {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !type_is_integer(t) {
-                    return verification_error("Invalid bytecode. Expected integer value", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["double"])
             case .dsub, .dadd, .dmul, .ddiv:
                 if stack.count < 2 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    fmt.println(stack)
+                    panic("")
+//                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value2 := stack_pop_class(stack)
                 value1 := stack_pop_class(stack)
                 if value2 != vm.classes["double"] || value1 != vm.classes["double"] {
-                    return verification_error("Invalid bytecode. Expected double value", method, instr)
+                    return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, value1)
             case .ineg:
                 if stack.count < 1 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value1 := stack_pop_class(stack)
                 if !type_is_integer(value1) {
-                    return verification_error("Invalid bytecode. Expected integer value", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 stack_push(stack, value1)
                 
             case .isub, .iadd, .imul, .idiv, .irem, .ior, .iand, .ixor:
                 if stack.count < 2 {
-                    return verification_error("Invalid bytecode. Not enough items on stack" , method, instr)
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value2 := stack_pop_class(stack)
                 value1 := stack_pop_class(stack)
                 if !type_is_integer(value2) || !type_is_integer(value1) {
-                    return verification_error("Invalid bytecode. Expected integer value", method, instr)
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 stack_push(stack, value1)
             case:
@@ -879,11 +904,11 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, method: ^
         next := find_codeblock_by_start(cblocks, cb.end) 
         if next.stack_at_start == nil {
             next.stack_at_start = new_clone(copy_stack(stack^))
-            return calculate_stack(vm, next, cblocks, method)
+            return calculate_stack(vm, next, cblocks, this_method)
         }
         else {
             if !stack_eq(stack, next.stack_at_start) {
-                return verification_error("Invalid bytecode. Inconsistent stack", method, {})
+                return verification_error("Invalid bytecode. Inconsistent stack", this_method, {})
             }
         }
     }

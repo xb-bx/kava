@@ -32,6 +32,7 @@ Method :: struct {
     locals: []^Class,
     code: Maybe(classparser.CodeAttribute),
     parent: ^Class,
+    jitted_body: [^]u8,
 }
 Class :: struct {
     name: string,
