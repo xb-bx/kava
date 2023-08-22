@@ -12,12 +12,20 @@ public class String {
     public String toString() {
         return this;
     }
+    public int pow(int x, int n) {
+        while(n > 0) {
+            x *= n;
+        }
+        return x;
+    }
     @Override
     public int hashCode() {
+        System.out.println("Hello");
         int sum = 0;
         for(int i = offset; i < length; i++) {
-            sum += value[i] * Math.pow(31, length - i - offset - 1);
+            sum += value[i] * (pow(31, length - i - offset - 1));
         }
+        System.out.println("Bye");
         return sum;
     }
     public static String valueOf(int num) { 
