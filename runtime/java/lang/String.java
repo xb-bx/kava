@@ -12,21 +12,13 @@ public class String {
     public String toString() {
         return this;
     }
-    public int pow(int x, int n) {
-        while(n > 0) {
-            x *= n;
-        }
-        return x;
-    }
     @Override
     public int hashCode() {
-        System.out.println("Hello");
-        int sum = 0;
-        for(int i = offset; i < length; i++) {
-            sum += value[i] * (pow(31, length - i - offset - 1));
+        int h = 0;
+        for (int i = offset; i < length + offset; i++) {
+            h = 31*h + value[i];
         }
-        System.out.println("Bye");
-        return sum;
+        return h;
     }
     public static String valueOf(int num) { 
         throw new NotImplementedException();
@@ -42,7 +34,7 @@ public class String {
                 if(this.length != others.length) {
                     return false;
                 }
-                for(int i = 0; i < this.length; i++) {
+                for(int i = offset; i < this.length + offset; i++) {
                     if (this.value[i] != others.value[i]) return false;
                 }
                 return true;

@@ -33,15 +33,22 @@ main :: proc() {
     odin_build("src/classparser", output = CLASSPARSER_EXE, collections = collections, additional_args = additional[:])
     odin_build("src/vm", output = KAVA_EXE, collections = collections, additional_args = additional[:])
     if len(args) > 0 && args[0] == "java" {
-        packages := list_files("java")
+        packages := list_files("runtime/java")
         for pkg in packages {
             sources := list_files(pkg.fullpath)
             for source in sources {
                 if filepath.ext(source.fullpath) == ".java" {
-                    run("javac", source.fullpath)
+                    run("javac", "-cp", "runtime", source.fullpath)
                 }
             }
         }
+        packages = list_files("runtime/kava")
+        for source in packages {
+            if filepath.ext(source.fullpath) == ".java" {
+                run("javac", "-cp", "runtime", source.fullpath)
+            }
+        }
+       
     }
     
 }

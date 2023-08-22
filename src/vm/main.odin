@@ -67,6 +67,11 @@ main :: proc() {
     }
     for class_name, class in vm.classes {
         fmt.printf("Class %s size: %i\n", class_name, class.size)
+        if class.instance_fields != nil {
+            for field in class.instance_fields {
+                fmt.println(field.name, field.offset)        
+            }
+        }
         for &method in class.methods {
             fmt.printf("  Method %s:%s\n", method.name, method.ret_type.name)
             blocks := (split_method_into_codeblocks(&vm, &method))
@@ -89,7 +94,7 @@ main :: proc() {
     }
     for method in app.value.(^Class).methods {
         if method.name == "main" {
-            val := (transmute(proc "c"() -> int) method.jitted_body)()
+            val := (transmute(proc "c"() -> i32) method.jitted_body)()
             fmt.println(val)
             return
         }

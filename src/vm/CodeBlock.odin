@@ -216,14 +216,23 @@ get_fieldrefconst_field :: proc(vm: ^VM, classfile: ^classparser.ClassFile, inde
     if typename == nil {
         return Err(^Field, "Invalid bytecode")
     }
+    name_and_type := resolve_name_and_type(classfile, field.name_and_type_index)
+    if name_and_type == nil {
+        return Err(^Field, "Invalid bytecode")
+    }
+    field_name_mb := resolve_utf8(classfile, name_and_type.(NameAndTypeInfo).name_index)
+    if field_name_mb == nil {
+        return Err(^Field, "Invalid bytecode")
+    }
+    field_name := field_name_mb.(string)
     type := load_class(vm, typename.(string))
     if type.is_err {
         return Err(^Field, type.error.(string))
     }    
     class := type.value.(^Class)
-    for &field in class.fields {
-        if field.name == field.name {
-            return Ok(string, &field)
+    for &clfield in class.fields {
+        if clfield.name == field_name {
+            return Ok(string, &clfield)
         }
     }
     return Err(^Field, "Invalid bytecode. Could not find field")

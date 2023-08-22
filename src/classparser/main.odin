@@ -502,7 +502,7 @@ hardcoded_opcodes := map[Opcode]SimpleInstruction {
     Opcode.iconst_0 = SimpleInstruction { opcode = Opcode.iconst_0, operand = nil },
     Opcode.iconst_1 = SimpleInstruction { opcode = Opcode.iconst_1, operand = nil },
     Opcode.iconst_2 = SimpleInstruction { opcode = Opcode.iconst_2, operand = nil },
-    Opcode.iconst_3 = SimpleInstruction { opcode = Opcode.iconst_4, operand = nil },
+    Opcode.iconst_3 = SimpleInstruction { opcode = Opcode.iconst_3, operand = nil },
     Opcode.iconst_4 = SimpleInstruction { opcode = Opcode.iconst_4, operand = nil },
     Opcode.iconst_5 = SimpleInstruction { opcode = Opcode.iconst_5, operand = nil },
     
@@ -1012,11 +1012,11 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                     count := 0
                     if next_is_wide {
                         index = ((cast(int)bytes[i + 1]) << 8) | cast(int)bytes[i + 2] 
-                        count = ((cast(int)bytes[i + 3]) << 8) | cast(int)bytes[i + 4] 
+                        count = cast(int)(transmute(i16)(((cast(u16)bytes[i + 3]) << 8) | cast(u16)bytes[i + 4])) 
                     }
                     else {
                         index = cast(int)bytes[i + 1]
-                        count = cast(int)bytes[i + 2]
+                        count = cast(int)transmute(i8)bytes[i + 2]
                     }
                     append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = two_op(index, count)})
                     i += size
