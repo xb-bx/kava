@@ -58,7 +58,6 @@ main :: proc() {
         classes = make(map[string]^Class),
         ctx = context,
     }
-    fmt.println(classpaths)
     for prim in PrimitiveType {
         make_primitive(&vm, prim, primitive_names[prim], primitive_sizes[prim])
     }
@@ -107,13 +106,19 @@ main :: proc() {
             class.class_initializer_called = true;
         }
     }
-    for method in app.value.(^Class).methods {
-        if method.name == "main" {
-            val := (transmute(proc "c"() -> i32) method.jitted_body)()
-            fmt.println(val)
-            return
-        }
+    mainMethod := find_method(app.value.(^Class), "main", "([Ljava/lang/String;)V")
+    if mainMethod == nil {
+        error("Could not find entry point")
     }
+    args_array := gc_alloc_array(&vm, vm.classes["java/lang/String"], len(applicationargs))
+    args_slice := array_to_slice(^ObjectHeader, args_array)
+    for arg,i in applicationargs {
+        str := gc_alloc_string(&vm, arg)
+        args_slice[i] = str 
+    }
+    ((transmute(proc "c" (args: ^ArrayHeader))mainMethod.jitted_body))(args_array)
+
+
 //     for k,v in vm.classes {
 //         fmt.println(k, "=", v.name, v.class_type)
 //         for field in v.fields {

@@ -1,8 +1,12 @@
 public class HelloWorld {
     public static void main(String[] args) {
-        System.out.println("Hello, world");
-    }
-    public static int test(int i, int i2) {
-        return i - i2;
+        if (args.length > 0) {
+            for(String arg: args) {
+                System.out.println(arg);
+            }
+        }
+        else {
+            System.out.println("No arguments supplied");
+        }
     }
 }

@@ -49,7 +49,9 @@ get_object_field :: proc(object: ^ObjectHeader, field_name: string) -> int {
     }
     panic("Unknown field")
 }
-
+array_to_slice :: proc($T: typeid, array: ^ArrayHeader) -> []T {
+    return slice.from_ptr(transmute(^T)(transmute(int)array + size_of(ArrayHeader)), array.length)
+}
 set_object_field :: proc(object: ^ObjectHeader, field_name: string, raw_data: int) {
     for field in object.class.instance_fields {
         if field.name == field_name {

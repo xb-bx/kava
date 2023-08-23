@@ -457,6 +457,19 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, Reg64.R10, 0)
                 cmp(assembler, Reg64.Rax, Reg64.R10)
                 jge(assembler, labels[start])
+            case .aaload:
+                stack_count -= 2
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
+                jit_null_check(assembler, Reg64.Rax)
+                mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 2))
+                mov(assembler, Reg64.R11, 8)
+                imul(assembler, Reg64.R10, Reg64.R11)
+                add(assembler, Reg64.Rax, size_of(ArrayHeader))
+                add(assembler, Reg64.Rax, Reg64.R10)
+                mov(assembler, Reg32.R10d, 0)
+                mov_from(assembler, Reg64.R10, Reg64.Rax)
+                stack_count += 1
+                mov_to(assembler, Reg64.Rbp, Reg64.R10, stack_base - 8 * stack_count)
             case .caload:
                 stack_count -= 2
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
