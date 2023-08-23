@@ -12,33 +12,36 @@ ArrayHeader :: struct {
     length: int,
 }
 
-gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, size: int = -1) -> ^ObjectHeader {
+gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: int = -1) {
     context = vm.ctx
     ptr, err := mem.alloc(size == -1 ? class.size : size)
     assert(err == .None)
     obj := transmute(^ObjectHeader)ptr
     obj.size = size == -1 ? class.size : size
     obj.class = class
-    return obj
+    output^ = obj
 }
-gc_alloc_array ::  proc(vm: ^VM, elem_class: ^Class, elems: int) -> ^ArrayHeader {
+gc_alloc_array ::  proc(vm: ^VM, elem_class: ^Class, elems: int, output: ^^ArrayHeader) {
     array_type := make_array_type(vm, elem_class) 
-    array_obj := transmute(^ArrayHeader)gc_alloc_object(vm, array_type, size_of(ArrayHeader) + elem_class.size * elems)
+    array_obj: ^ArrayHeader = nil
+    gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, size_of(ArrayHeader) + elem_class.size * elems)
     array_obj.length = elems 
-    return array_obj
+    output^ = array_obj
 }
-gc_alloc_string :: proc(vm: ^VM, str: string) -> ^ObjectHeader {
-    array := gc_alloc_array(vm, vm.classes["char"], len(str)) 
+gc_alloc_string :: proc(vm: ^VM, str: string, output: ^^ObjectHeader) {
+    array :^ArrayHeader = nil
+    gc_alloc_array(vm, vm.classes["char"], len(str), &array) 
     chars_start := transmute(^u16)(transmute(int)array + size_of(ArrayHeader))
     chars := slice.from_ptr(chars_start, len(str))
     for c, i in str {
         chars[i] = cast(u16)c
     }
-    strobj :=gc_alloc_object(vm, vm.classes["java/lang/String"])
+    strobj: ^ObjectHeader = nil
+    gc_alloc_object(vm, vm.classes["java/lang/String"], &strobj)
     set_object_field(strobj, "value", transmute(int)array)
     set_object_field(strobj, "length", len(chars))
     set_object_field(strobj, "offset", 0)
-    return strobj
+    output^ = strobj
 }
 
 get_object_field :: proc(object: ^ObjectHeader, field_name: string) -> int {

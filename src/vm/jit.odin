@@ -330,7 +330,8 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                     case StringInfo:
                         str_index := const.(classparser.StringInfo).string_index
                         str := resolve_utf8(method.parent.class_file, str_index).(string)
-                        strobj := gc_alloc_string(vm, str)
+                        strobj :^ObjectHeader= nil
+                        gc_alloc_string(vm, str, &strobj)
                         mov(assembler, Reg64.Rax, transmute(u64)strobj)
                     case:
                         fmt.println(const)
@@ -488,6 +489,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, Reg64.Rax, transmute(u64)d2i)
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .i2l:
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
@@ -498,6 +500,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, Reg64.Rax, transmute(u64)i2d)
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .dmul:
                 stack_count -= 2
@@ -506,6 +509,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, Reg64.Rax, transmute(u64)dmul)
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .dadd:
@@ -515,6 +519,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, Reg64.Rax, transmute(u64)dadd)
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .iinc:
@@ -528,11 +533,13 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, reg_args[0], transmute(u64)vm)
                 mov(assembler, reg_args[1], transmute(u64)get_class(vm, method.parent.class_file, index).value.(^Class))
-                mov(assembler, reg_args[2], transmute(u64)cast(int)-1)
+                mov(assembler, reg_args[2], Reg64.Rbp)
+                add(assembler, reg_args[2], stack_base - 8 * stack_count)
+                mov(assembler, reg_args[3], transmute(u64)cast(int)-1)
                 mov(assembler, Reg64.Rax, transmute(u64)gc_alloc_object)
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
-                mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
             case .dup:
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
                 stack_count += 1
@@ -544,6 +551,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, Reg64.Rax, transmute(u64)throw)
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
             case .instanceof:
                 fals := create_label(assembler)                
                 end := create_label(assembler)
@@ -617,6 +625,7 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64) {
     mov(assembler, Reg64.R11, transmute(u64)jit_null_ref)
     when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
     call_reg(assembler, Reg64.R11)
+    when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
     set_label(assembler, oklabel)
     
 }

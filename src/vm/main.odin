@@ -110,10 +110,12 @@ main :: proc() {
     if mainMethod == nil {
         error("Could not find entry point")
     }
-    args_array := gc_alloc_array(&vm, vm.classes["java/lang/String"], len(applicationargs))
+    args_array: ^ArrayHeader = nil
+    gc_alloc_array(&vm, vm.classes["java/lang/String"], len(applicationargs), &args_array)
     args_slice := array_to_slice(^ObjectHeader, args_array)
     for arg,i in applicationargs {
-        str := gc_alloc_string(&vm, arg)
+        str : ^ObjectHeader = nil
+        gc_alloc_string(&vm, arg, &str)
         args_slice[i] = str 
     }
     ((transmute(proc "c" (args: ^ArrayHeader))mainMethod.jitted_body))(args_array)

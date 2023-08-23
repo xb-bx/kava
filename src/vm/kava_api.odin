@@ -13,7 +13,8 @@ write_byte :: proc "c" (fd: os.Handle, b: i32) {
 /// getStdout ()Ljava/io/FileOutputStream;
 getStdout :: proc "c" () -> ^ObjectHeader {
     context = vm.ctx
-    fs := gc_alloc_object(vm, vm.classes["java/io/FileOutputStream"])
+    fs: ^ObjectHeader = nil
+    gc_alloc_object(vm, vm.classes["java/io/FileOutputStream"], &fs)
     set_object_field(fs, "fd", cast(int)os.stdout)
     return fs
 } 
