@@ -58,6 +58,7 @@ main :: proc() {
         classes = make(map[string]^Class),
         ctx = context,
     }
+    fmt.println(classpaths)
     for prim in PrimitiveType {
         make_primitive(&vm, prim, primitive_names[prim], primitive_sizes[prim])
     }

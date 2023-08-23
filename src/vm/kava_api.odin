@@ -20,6 +20,7 @@ getStdout :: proc "c" () -> ^ObjectHeader {
 /// flush (J)V
 flush :: proc "c" (fd: os.Handle) { 
     when ODIN_OS == .Windows {
+        context = vm.ctx
         os.flush(fd)
     }
 }

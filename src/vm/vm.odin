@@ -156,6 +156,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
 
             }
             else {
+                fmt.println(fullpath, os.exists(fullpath))
                 if os.exists(fullpath) {
                     bytes, _ := os.read_entire_file(fullpath)
                     defer delete(bytes)

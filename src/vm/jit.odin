@@ -6,6 +6,7 @@ import "core:sys/unix"
 import "core:runtime"
 import "core:strings"
 import "core:math"
+import "core:mem/virtual"
 
 JittingContext :: struct {
     vm: ^VM,
@@ -129,6 +130,72 @@ jit_prepare_locals_indices :: proc(method: ^Method) -> []i32 {
     }
     return res[:]
 }
+jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) {
+    when ODIN_OS == .Windows {
+        jit_prepare_locals_windows(method, locals, assembler)
+    } else {
+        jit_prepare_locals_systemv(method, locals, assembler)
+    }
+}
+jit_prepare_locals_windows :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) {
+    using x86asm
+    reg_args: []Reg64 = nil
+    reg_args_a := [?]Reg64 { Reg64.Rcx, Reg64.Rdx, Reg64.R8, Reg64.R9 }
+
+    argi := 0
+    regi := 0
+    extra_args := false
+    sub_size:int = 0
+    if len(locals) != 0 {
+        last:i32 = locals[len(locals) - 1]
+        sub_size = -cast(int)last
+    }
+    stack_size := cast(int)method.code.(classparser.CodeAttribute).max_stack * 8
+    sub_size += stack_size
+    if sub_size % 16 != 0 {
+        sub_size += 8
+    }
+    sub(assembler, Reg64.Rsp, sub_size)
+    if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Static) { 
+        reg_args = reg_args_a[1:]
+        mov_to(assembler, Reg64.Rbp, reg_args_a[0], locals[0])
+    } else {
+        reg_args = reg_args_a[0:]
+    }
+    for argi < len(method.args) {
+        if regi >= len(reg_args) {
+            extra_args = true
+            break
+        }
+        arg := method.args[argi]
+        if arg.name == "double" || arg.name == "long" {
+            argi += 1
+        }
+        argi += 1
+        if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Static) { 
+            mov_to(assembler, Reg64.Rbp, reg_args[regi], locals[argi])
+        } else {
+            mov_to(assembler, Reg64.Rbp, reg_args[regi], locals[argi - 1])
+        }
+        regi += 1
+    }
+    rev_argi := argi
+    off: i32 = 16 + 32
+    for rev_argi < len(method.args) {
+        arg := method.args[rev_argi]
+        if arg.name == "double" || arg.name == "long" {
+            rev_argi += 1
+        }
+        mov_from(assembler, Reg64.Rax, Reg64.Rbp, off)
+        if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Static) { 
+            mov_to(assembler, Reg64.Rbp, Reg64.Rax, locals[rev_argi + 1])
+        } else {
+            mov_to(assembler, Reg64.Rbp, Reg64.Rax, locals[rev_argi])
+        }
+        rev_argi += 1
+        off += 8
+    }
+}
 jit_prepare_locals_systemv :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) {
     using x86asm
     reg_args: []Reg64 = nil
@@ -191,7 +258,16 @@ jit_prepare_locals_systemv :: proc(method: ^Method, locals: []i32, assembler: ^x
 jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     using classparser
     using x86asm 
+    reg_args : []Reg64 = nil
+    when ODIN_OS == .Windows {
+        r := [?]Reg64 { Reg64.Rcx, Reg64.Rdx, Reg64.R8, Reg64.R9 }
+        reg_args = r[:]
+    } else {
+        r := [?]Reg64 { Reg64.Rdi, Reg64.Rsi, Reg64.Rdx, Reg64.Rcx, Reg64.R8, Reg64.R9 }
+        reg_args = r[:]
+    }
     set_label(assembler, labels[cb.start])
+
     for instruction in cb.code {
 //         fmt.println(stack_count)
 //         print_instruction(instruction)
@@ -395,8 +471,9 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.R10, stack_base - 8 * stack_count)
             case .d2i:
-                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
-                mov(assembler, Reg64.Rsi, transmute(u64)d2i)
+                mov_from(assembler, reg_args[0], Reg64.Rbp, stack_base - 8 * stack_count)
+                mov(assembler, Reg64.Rax, transmute(u64)d2i)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .i2l:
@@ -404,23 +481,26 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 movsx_reg64_reg32(assembler, Reg64.Rax, Reg32.Eax)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .i2d:
-                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
-                mov(assembler, Reg64.Rsi, transmute(u64)i2d)
+                mov_from(assembler, reg_args[0], Reg64.Rbp, stack_base - 8 * stack_count)
+                mov(assembler, Reg64.Rax, transmute(u64)i2d)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .dmul:
                 stack_count -= 2
-                mov_from(assembler, Reg64.Rdi, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
-                mov_from(assembler, Reg64.Rsi, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
-                mov(assembler, Reg64.Rsi, transmute(u64)dmul)
+                mov_from(assembler, reg_args[0], Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
+                mov_from(assembler, reg_args[1], Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
+                mov(assembler, Reg64.Rax, transmute(u64)dmul)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .dadd:
                 stack_count -= 2
-                mov_from(assembler, Reg64.Rdi, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
-                mov_from(assembler, Reg64.Rsi, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
-                mov(assembler, Reg64.Rsi, transmute(u64)dadd)
+                mov_from(assembler, reg_args[0], Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
+                mov_from(assembler, reg_args[1], Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
+                mov(assembler, Reg64.Rax, transmute(u64)dadd)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
@@ -433,10 +513,11 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .new:
                 stack_count += 1 
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-                mov(assembler, Reg64.Rdi, transmute(u64)vm)
-                mov(assembler, Reg64.Rsi, transmute(u64)get_class(vm, method.parent.class_file, index).value.(^Class))
-                mov(assembler, Reg64.Rdx, transmute(u64)cast(int)-1)
+                mov(assembler, reg_args[0], transmute(u64)vm)
+                mov(assembler, reg_args[1], transmute(u64)get_class(vm, method.parent.class_file, index).value.(^Class))
+                mov(assembler, reg_args[2], transmute(u64)cast(int)-1)
                 mov(assembler, Reg64.Rax, transmute(u64)gc_alloc_object)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .dup:
@@ -444,10 +525,11 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .athrow:
-                mov(assembler, Reg64.Rdi, transmute(u64)vm)
-                mov_from(assembler, Reg64.Rsi, Reg64.Rbp, stack_base - 8 * stack_count) 
-                mov(assembler, Reg64.Rdx, transmute(u64)method)
+                mov(assembler, reg_args[0], transmute(u64)vm)
+                mov_from(assembler, reg_args[1], Reg64.Rbp, stack_base - 8 * stack_count) 
+                mov(assembler, reg_args[2], transmute(u64)method)
                 mov(assembler, Reg64.Rax, transmute(u64)throw)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
             case .instanceof:
                 fals := create_label(assembler)                
@@ -520,6 +602,7 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64) {
     cmp(assembler, reg, Reg64.R11)
     jne(assembler, oklabel)
     mov(assembler, Reg64.R11, transmute(u64)jit_null_ref)
+    when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
     call_reg(assembler, Reg64.R11)
     set_label(assembler, oklabel)
     
@@ -531,7 +614,78 @@ jit_invoke_static :: proc(using ctx: ^JittingContext, instruction: classparser.I
     when ODIN_OS == .Linux {
         jit_invoke_static_systemv(ctx, instruction)
     } else {
-        panic("")
+        jit_invoke_static_windows(ctx, instruction)
+    }
+}
+jit_invoke_static_windows :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
+    using x86asm
+    
+    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+    target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
+    args := count_args(target)
+    registers := [?]Reg64 { Reg64.Rcx, Reg64.Rdx, Reg64.R8, Reg64.R9 }
+    if method.name == "<clinit>" {
+        initializer := find_method(target.parent, "<clinit>", "()V")
+        if initializer != nil {
+            already_initialized := create_label(assembler)
+            mov(assembler, Reg64.Rax, transmute(u64)&target.parent.class_initializer_called)
+            mov_from(assembler, Reg8.Al, Reg64.Rax)
+            mov(assembler, Reg8.R10b, 0)
+            cmp(assembler, Reg8.Al, Reg8.R10b)
+            jne(assembler, already_initialized)
+            mov(assembler, Reg64.Rax, transmute(u64)initializer)
+            sub(assembler, Reg64.Rsp, 32)
+            call_reg(assembler, Reg64.Rax)
+            set_label(assembler, already_initialized)
+        }
+        
+
+    }
+
+    extra_args_size : i32 = 0
+    if args > len(registers) {
+        extra_args_size = (args - len(registers)) * 8
+        off := extra_args_size - 8
+        if extra_args_size % 16 != 0 {
+            extra_args_size += 8
+        }
+        sub(assembler, Reg64.Rsp, cast(int)extra_args_size)
+        extra_args := args - len(registers)
+        for argindex in len(registers)..<args {
+            mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
+            mov_to(assembler, Reg64.Rsp, Reg64.Rax, off)
+            stack_count -= 1
+            off -= 8
+        }
+    }
+
+    argi := 0
+    last_register_index := min(args, len(registers))-1 
+    register_index: i32 = 0
+    for argindex in 0..<min(args, len(registers)) {
+        if argindex < 0 { break }
+        arg := target.args[argi] 
+        if is_long_or_double(arg) {
+            argi += 1
+        }
+        argi += 1
+        mov_from(assembler, registers[last_register_index - register_index], Reg64.Rbp, stack_base - 8 * stack_count)
+        stack_count -= 1
+        register_index += 1
+    }
+
+    mov(assembler, Reg64.Rax, transmute(u64)&target.jitted_body)
+    sub(assembler, Reg64.Rsp, 32)
+    call_at_reg(assembler, Reg64.Rax)
+    if extra_args_size != 0 {
+        add(assembler, Reg64.Rsp, extra_args_size + 32)
+    } else {
+        add(assembler, Reg64.Rsp, 32)
+    }
+
+    if target.ret_type != vm.classes["void"] {
+        stack_count += 1
+        mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
     }
 }
 jit_invoke_static_systemv :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
@@ -602,6 +756,81 @@ jit_invoke_static_systemv :: proc(using ctx: ^JittingContext, instruction: class
     }
 }
 
+jit_invoke_method_windows :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction, virtual_call: bool = true) {
+    using x86asm
+    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+    target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
+    virtual := !hasFlag(target.access_flags, classparser.MethodAccessFlags.Final) && get_instr_opcode(instruction) == classparser.Opcode.invokevirtual && virtual_call
+    args := count_args(target)
+    if virtual {
+        mov(assembler, Reg64.Rcx, transmute(u64)vm)
+        mov_from(assembler, Reg64.Rdx, Reg64.Rbp, stack_base - 8 * (stack_count - args))
+        mov(assembler, Reg64.R8, transmute(u64)target)
+        mov(assembler, Reg64.Rax, transmute(u64)jit_resolve_virtual)
+        sub(assembler, Reg64.Rsp, 32)
+        call_reg(assembler, Reg64.Rax)
+        mov(assembler, Reg64.R10, Reg64.Rax)
+    }
+
+    registers := [?]Reg64 {Reg64.Rdx, Reg64.R8, Reg64.R9}
+
+    extra_args_size : i32 = 0
+    if args > len(registers) {
+        extra_args_size = (args - len(registers)) * 8
+        off := extra_args_size - 8
+        if extra_args_size % 16 != 0 {
+            extra_args_size += 8
+        }
+        sub(assembler, Reg64.Rsp, cast(int)extra_args_size)
+        extra_args := args - len(registers)
+        for argindex in len(registers)..<args {
+            mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
+            mov_to(assembler, Reg64.Rsp, Reg64.Rax, off)
+            stack_count -= 1
+            off -= 8
+        }
+    }
+    argi := 0
+    last_register_index := min(args, len(registers))-1 
+    register_index: i32 = 0
+    for argindex in 0..<min(args, len(registers)) {
+        if argindex < 0 { break }
+        arg := target.args[argi] 
+        if is_long_or_double(arg) {
+            argi += 1
+        }
+        argi += 1
+        mov_from(assembler, registers[last_register_index - register_index], Reg64.Rbp, stack_base - 8 * stack_count)
+        stack_count -= 1
+        register_index += 1
+    }
+
+    
+    mov_from(assembler, Reg64.Rcx, Reg64.Rbp, stack_base - 8 * stack_count)
+    stack_count -= 1
+    if virtual {
+        sub(assembler, Reg64.Rsp, 32)
+        call_at_reg(assembler, Reg64.R10)
+    }
+    else {
+        mov(assembler, Reg64.Rax, transmute(u64)&target.jitted_body)
+        sub(assembler, Reg64.Rsp, 32)
+        call_at_reg(assembler, Reg64.Rax)
+    }
+
+    if extra_args_size != 0 {
+        add(assembler, Reg64.Rsp, extra_args_size + 32)
+    }
+    else {
+        add(assembler, Reg64.Rsp, 32)
+    }
+
+    if target.ret_type != vm.classes["void"] {
+        stack_count += 1
+        mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
+    }
+
+}
 jit_invoke_method_systemv :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction, virtual_call: bool = true) {
     using x86asm
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
@@ -675,14 +904,14 @@ jit_invoke_special :: proc(ctx: ^JittingContext, instruction: classparser.Instru
     when ODIN_OS == .Linux {
         jit_invoke_method_systemv(ctx, instruction, false)
     } else {
-        panic("")
+        jit_invoke_method_windows(ctx, instruction, false)
     }
 }
 jit_invoke_virtual :: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
     when ODIN_OS == .Linux {
         jit_invoke_method_systemv(ctx, instruction)
     } else {
-      panic("")  
+        jit_invoke_method_windows(ctx, instruction, false)
     }
 }
 count_args :: proc(method: ^Method) -> i32 {
@@ -697,94 +926,6 @@ count_args :: proc(method: ^Method) -> i32 {
         args += 1
     }
     return args
-}
-jit_invoke_virtual_systemv :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
-    using x86asm
-    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-    target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
-    pushed_to_stack := 0
-    args :i32= 0
-    mov(assembler, Reg64.Rdi, transmute(u64)vm)
-    mov_from(assembler, Reg64.Rsi, Reg64.Rbp, stack_base - 8 * (stack_count - count_args(target)))
-    mov(assembler, Reg64.Rdx, transmute(u64)target)
-    mov(assembler, Reg64.Rax, transmute(u64)jit_resolve_virtual)
-    call_reg(assembler, Reg64.Rax)
-    mov(assembler, Reg64.R10, Reg64.Rax)
-    reg_args := [?]Reg64{Reg64.Rsi, Reg64.Rdx, Reg64.Rcx, Reg64.R8, Reg64.R9}
-    argi : i32 = 0 
-    regi := 0
-    extra_args := false
-    real_count := 0
-    extra_start := 0
-    for argi < cast(i32)len(target.args) {
-        if real_count == 6 {
-            extra_start = cast(int)argi
-        }
-        real_count += 1
-        if is_long_or_double(target.args[argi]) {
-            argi += 1
-        }
-        argi += 1
-    }
-    if real_count > len(reg_args) {
-        rev_argi: i32 = cast(i32)extra_start
-        real_last: i32 = 6
-        for rev_argi < cast(i32)len(target.args) {
-            arg := target.args[rev_argi]
-            pushed_to_stack += 1
-            rev_argi += 1
-            if is_long_or_double(arg) {
-                rev_argi += 1
-            }
-            real_last += 1
-        }
-        real_last -= 1
-        rev_argi = cast(i32)len(target.args) - 1 
-        if pushed_to_stack % 2 == 1{
-            push(assembler, 69)
-        }
-        rev_argi_real: i32 = 6 
-        for rev_argi >= cast(i32)extra_start {
-            arg := target.args[rev_argi]
-            rev_argi -= 1
-            args += 1
-            if is_long_or_double(arg) {
-                rev_argi -= 1
-            }
-            mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - real_last * 8) 
-            push(assembler, Reg64.Rax)
-            stack_count -= 1
-        }
-    }
-    argi = 0
-    for argi < cast(i32)len(target.args) {
-        if regi >= len(reg_args) {
-            extra_args = true
-            break
-        }
-        args += 1
-        arg := target.args[argi]
-        argi += 1
-        if is_long_or_double(arg) {
-            argi += 1
-        }
-        assert(stack_count > 0)
-        mov_from(assembler, reg_args[regi], Reg64.Rbp, stack_base - stack_count * 8)
-        regi += 1
-        stack_count -= 1
-        
-    }
-    mov_from(assembler, Reg64.Rdi, Reg64.Rbp, stack_base - stack_count * 8)
-    stack_count -= 1
-    call_at_reg(assembler, Reg64.R10)
-    if pushed_to_stack % 2 == 1{
-        pop(assembler, Reg64.R10)
-    }
-    if target.ret_type != vm.classes["void"] {
-        stack_count += 1
-        mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - stack_count * 8)
-    } 
-
 }
 jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method) -> ^[^]u8 {
     context = vm.ctx
@@ -818,6 +959,6 @@ jit_method_prolog :: proc(method: ^Method, assembler: ^x86asm.Assembler) -> []i3
     push(assembler, Reg64.Rbp)
     mov(assembler, Reg64.Rbp, Reg64.Rsp)
     indices := jit_prepare_locals_indices(method)
-    jit_prepare_locals_systemv(method, indices, assembler)
+    jit_prepare_locals(method, indices, assembler)
     return indices
 }
