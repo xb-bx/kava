@@ -9,6 +9,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:intrinsics"
 import "core:runtime"
+import "x86asm:x86asm"
 
 VM :: struct {
     classpaths: []string,
@@ -109,6 +110,18 @@ find_method_by_name_and_descriptor :: proc(class: ^Class, name: string, descript
         }
     }
     return nil
+}
+replace_body :: proc(method: ^Method, procptr: rawptr) {
+    using x86asm
+    assembler := Assembler {}
+    init_asm(&assembler)
+    defer delete_asm(&assembler)
+    mov(&assembler, Reg64.Rax, transmute(u64)procptr)
+    jmp_reg_direct(&assembler, Reg64.Rax)
+    method.jitted_body = alloc_executable(len(assembler.bytes))
+    for b, i in assembler.bytes {
+        method.jitted_body[i] = b
+    }
 }
 load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string) {
     using classparser

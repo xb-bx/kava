@@ -4,3 +4,4 @@ nobuild.odin
 *.class
 odin-zip
 x86asm
+kava.generated.odin

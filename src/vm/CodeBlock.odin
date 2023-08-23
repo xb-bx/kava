@@ -139,7 +139,7 @@ split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result(
         res[0].stack_at_start = new_clone(make_stack(cast(int)codeattr.max_stack))
     }
     method.locals = make([]^Class, cast(int)codeattr.max_locals)
-    if !hasFlag(method.access_flags, MemberAccessFlags.Static) {
+    if !hasFlag(method.access_flags, MethodAccessFlags.Static) {
         method.locals[0] = method.parent
         for arg, i in method.args {
             method.locals[i + 1] = arg
@@ -235,7 +235,7 @@ get_fieldrefconst_field :: proc(vm: ^VM, classfile: ^classparser.ClassFile, inde
             return Ok(string, &clfield)
         }
     }
-    return Err(^Field, "Invalid bytecode. Could not find field")
+    return Err(^Field, fmt.aprintf("Invalid bytecode. Could not find field %s", field_name))
 }
 get_fieldrefconst_class :: proc(vm: ^VM, classfile: ^classparser.ClassFile, index: int) -> shared.Result(^Class, string) {
     using shared
@@ -378,6 +378,27 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if type.value.(^Class) != typ.class && !is_stacktype_subtype_of(typ, type.value.(^Class)) {
                     return verification_error("Invalid bytecode. Wrong value type", this_method, instr)
+                }
+            case .putfield:
+                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+                type := get_fieldrefconst_type(vm, this_method.parent.class_file, index)
+                if type.is_err {
+                    return verification_error(type.error.(string), this_method, instr)
+                }
+                if stack.count < 2 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                typ := stack_pop(stack)
+                fieldtyperes := get_fieldrefconst_type(vm, this_method.parent.class_file, index)
+                if fieldtyperes.is_err {
+                    return verification_error(fieldtyperes.error.(string), this_method, instr)
+                }
+                fieldtype := fieldtyperes.value.(^Class)
+                containingType := stack_pop(stack)
+                if typ.class != fieldtype && (!is_stacktype_subtype_of(typ, fieldtype)) {
+                    fmt.println(typ.class.name, containingType.class.name)
+                    panic("Invalid bytecode. Wrong instance type")                   
+//                     return verification_error("Invalid bytecode. Wrong instance type", this_method, instr)
                 }
             case .getfield:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
@@ -638,7 +659,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error(methodres.error.(string), this_method, instr)
                 }
                 method := methodres.value.(^Method)
-                if !hasFlag(method.access_flags, MemberAccessFlags.Static) {
+                if !hasFlag(method.access_flags, MethodAccessFlags.Static) {
                     return verification_error("Invalid bytecode. Expected static method", this_method, instr)
                 
                 }
@@ -693,7 +714,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     }
                     argi += 1
                 }
-                if !hasFlag(method.access_flags, MemberAccessFlags.Static) {
+                if !hasFlag(method.access_flags, MethodAccessFlags.Static) {
                     this := stack_pop(stack) 
                     if this == nil {
                         return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
@@ -887,6 +908,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
+            case .i2l:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(t) {
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["long"])
             case .i2d:
                 t := stack_pop_class(stack)
                 if t == nil {
@@ -928,6 +958,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 stack_push(stack, value1)
+            case .arraylength:
+                array := stack_pop_class(stack)
+                if array == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if array.class_type != ClassType.Array {
+                    return verification_error("Invalid bytecode. Expected array", this_method, instr)
+                }
+                stack_push(stack, vm.classes["int"])
             case:
                 fmt.println(instr)
                 panic("unimplemented")

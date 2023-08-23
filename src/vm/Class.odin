@@ -28,7 +28,7 @@ Field :: struct {
 Method :: struct {
     name: string,
     descriptor: string, 
-    access_flags: classparser.MemberAccessFlags,
+    access_flags: classparser.MethodAccessFlags,
     ret_type: ^Class,
     args: []^Class,
     locals: []^Class,
@@ -50,5 +50,5 @@ Class :: struct {
     primitive: PrimitiveType,
     size: int,
     size_without_header: int,
-
+    class_initializer_called: bool,
 }

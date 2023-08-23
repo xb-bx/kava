@@ -65,6 +65,7 @@ main :: proc() {
     if app.is_err {
         error(app.error.(string))
     }
+    initialize_kava(&vm)
     for class_name, class in vm.classes {
         fmt.printf("Class %s size: %i\n", class_name, class.size)
         if class.instance_fields != nil {
@@ -73,7 +74,11 @@ main :: proc() {
             }
         }
         for &method in class.methods {
+            if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native | classparser.MethodAccessFlags.Abstract) {
+                continue
+            }
             fmt.printf("  Method %s:%s\n", method.name, method.ret_type.name)
+
             blocks := (split_method_into_codeblocks(&vm, &method))
             if blocks.is_err {
                 print_verification_error(blocks.error.(VerificationError))
@@ -90,6 +95,15 @@ main :: proc() {
             {
                 jit_method(&vm, &method, blocks.value.([]CodeBlock))
             }
+        }
+    }
+    for name, class in vm.classes {
+        initializer := find_method(class, "<clinit>", "()V")
+        if initializer != nil && !class.class_initializer_called {
+            (transmute(proc "c" ())initializer.jitted_body)()
+        }
+        else {
+            class.class_initializer_called = true;
         }
     }
     for method in app.value.(^Class).methods {

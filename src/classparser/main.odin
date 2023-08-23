@@ -268,6 +268,19 @@ BytecodeBehaivour :: enum {
     REF_newInvokeSpecial, 
     REF_invokeInterface, 
 }
+MethodAccessFlags :: enum u16 {
+    Public = 0x0001,
+    Private = 0x0002,
+    Protected = 0x0004,
+    Static = 0x0008,
+    Final = 0x0010,
+    Synchronized = 0x0020,
+    Bridge = 0x0040,
+    Varargs = 0x0080,
+    Native = 0x0100,
+    Synthetic = 0x1000,
+    Abstract = 0x0400,
+}
 MemberAccessFlags :: enum u16 {
     Public = 0x0001,
     Private = 0x0002,
@@ -379,7 +392,7 @@ StringInfo :: struct {
     string_index: u16,
 }
 MethodInfo :: struct {
-    access_flags: MemberAccessFlags,
+    access_flags: MethodAccessFlags,
     name_index: u16,
     descriptor_index: u16,
     attributes: []AttributeInfo,
@@ -398,7 +411,20 @@ ExceptionInfo :: struct {
     handler_pc: u16,
     catch_type: u16,
 }
-print_flags :: proc {print_member_flags, print_class_flags}
+print_flags :: proc {print_member_flags, print_class_flags, print_method_flags}
+print_method_flags :: proc(flags: MethodAccessFlags) {
+    wasprev := false
+    for flag in MethodAccessFlags{
+        if cast(int)flags & cast(int)flag > 0 {
+            if wasprev {
+                fmt.print(" | ")
+            }
+            fmt.print(flag)
+            wasprev = true
+        }
+        
+    } 
+}
 print_member_flags :: proc(flags: MemberAccessFlags) {
     wasprev := false
     for flag in MemberAccessFlags{
@@ -867,7 +893,7 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
             attributes[attri] = attr.(AttributeInfo)
         }
         class.methods[mi] = MethodInfo {
-            access_flags = transmute(MemberAccessFlags)access_flags.(u16),
+            access_flags = transmute(MethodAccessFlags)access_flags.(u16),
             name_index = name_index.(u16),
             descriptor_index = descriptor_index.(u16),
             attributes = attributes,

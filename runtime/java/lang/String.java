@@ -20,6 +20,9 @@ public class String {
         }
         return h;
     }
+    public int length() {
+        return this.length;
+    }
     public static String valueOf(int num) { 
         throw new NotImplementedException();
     }
