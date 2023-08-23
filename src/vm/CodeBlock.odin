@@ -9,6 +9,7 @@ CodeBlock :: struct {
     end: int,
     stack_at_start: ^TypeStack,
     code: []classparser.Instruction,
+    locals: []^Class,
     visited: bool,
 }
 VerificationError :: struct {
@@ -72,12 +73,25 @@ split_instructions_by_byteoffset :: proc(instructions: []classparser.Instruction
         return instructions[starti:endi]
     }
 }
+locals_equal :: proc(local1: []^Class, locals2: []^Class) -> bool {
+    for local, i in local1 {
+        local2 := locals2[i]
+        if local == nil || local2 == nil {
+            continue
+        }
+        if local != local2 {
+            return false
+        }
+    } 
+    return true
+}
 split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result([]CodeBlock, VerificationError) {
     using classparser
     using shared 
     assert(method.code != nil)
     blocks := find_method_block_indices(vm, method)
     codeattr := method.code.(CodeAttribute)
+    method.max_locals = cast(int)codeattr.max_locals
     instructions := codeattr.code
     res := make([]CodeBlock, len(blocks) - 1) 
     if len(blocks) == 2 {
@@ -86,6 +100,7 @@ split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result(
             end = blocks[1],
             code = instructions,
             stack_at_start = nil,
+            locals = make([]^Class, method.max_locals),
             visited = false,
         }
     }
@@ -124,6 +139,7 @@ split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result(
                 start = start,
                 end = blocks[blocki + 1],
                 code = instructions[startindex:index],
+                locals = make([]^Class, method.max_locals),
                 stack_at_start = nil,
                 visited = false,
             }
@@ -138,16 +154,15 @@ split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result(
     else {
         res[0].stack_at_start = new_clone(make_stack(cast(int)codeattr.max_stack))
     }
-    method.locals = make([]^Class, cast(int)codeattr.max_locals)
     if !hasFlag(method.access_flags, MethodAccessFlags.Static) {
-        method.locals[0] = method.parent
+        res[0].locals[0] = method.parent
         for arg, i in method.args {
-            method.locals[i + 1] = arg
+            res[0].locals[i + 1] = arg
         }
     }
     else {
         for arg, i in method.args {
-            method.locals[i] = arg
+            res[0].locals[i] = arg
         }
     }
     err := calculate_stack(vm, &res[0], res, method) 
@@ -342,6 +357,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
     }
     cb.visited = true
     stack := new_clone(copy_stack(cb.stack_at_start^))
+    locals := slice.clone(cb.locals)
     i := 0
     canEscape := true
     for i < len(cb.code) {
@@ -426,10 +442,10 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected reference-type", this_method, instr)
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if this_method.locals[index] == nil {
-                    this_method.locals[index] = t.class
+                if locals[index] == nil {
+                    locals[index] = t.class
                 }
-                else if !is_stacktype_subtype_of(t, this_method.locals[index]) && t.class != this_method.locals[index] {
+                else if !is_stacktype_subtype_of(t, locals[index]) && t.class != locals[index] {
                     return verification_error("Invalid bytecode. Wrong value type", this_method, instr)
                 }
             case .dstore:
@@ -438,36 +454,48 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected integer on stack before istore operation", this_method, instr)
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if this_method.locals[index] == nil {
-                    this_method.locals[index] = t
+                if locals[index] == nil {
+                    locals[index] = t
                 }
             case .dload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if index >= len(this_method.locals) || this_method.locals[index].name != "double" {
+                if index >= len(locals) || locals[index].name != "double" {
                     return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
                 }
-                stack_push(stack, this_method.locals[index])
+                stack_push(stack, locals[index])
             case .istore:
                 t := stack_pop_class(stack)
                 if t == nil || !type_is_integer(t) {
                     return verification_error("Invalid bytecode. Expected integer on stack before istore operation", this_method, instr)
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if this_method.locals[index] == nil {
-                    this_method.locals[index] = t
+                if locals[index] == nil {
+                    locals[index] = t
                 }
             case .iload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if index >= len(this_method.locals) || !type_is_integer(this_method.locals[index]) {
+                if index >= len(locals) {
                     return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
                 }
-                stack_push(stack, this_method.locals[index])
+                if locals[index] == nil {
+                    locals[index] = vm.classes["int"]
+                }
+                else if !type_is_integer(locals[index]) {
+                    return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
+                }
+                stack_push(stack, locals[index])
+            case .lload:
+                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+                if index >= len(locals) || locals[index] != vm.classes["long"] {
+                    return verification_error("Invalid bytecode. Expected long local variable", this_method, instr)
+                }
+                stack_push(stack, locals[index])
             case .aload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if index >= len(this_method.locals) || (this_method.locals[index] != vm.object &&  !is_subtype_of(this_method.locals[index], vm.object)) {
+                if index >= len(locals) || (locals[index] != vm.object &&  !is_subtype_of(locals[index], vm.object)) {
                     return verification_error("Invalid bytecode. Expected reference-type local variable", this_method, instr)
                 }
-                stack_push(stack, this_method.locals[index])
+                stack_push(stack, locals[index])
                 
             case .tableswitch:
                 canEscape = false
@@ -483,12 +511,13 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     }
                     if block.stack_at_start == nil {
                         block.stack_at_start = new_clone(copy_stack(stack^))
+                        block.locals = slice.clone(locals)
                         res := calculate_stack(vm, block, cblocks, this_method)
                         if res != nil {
                             return res
                         }
                     }
-                    else if !stack_eq(block.stack_at_start, stack) {
+                    else if !stack_eq(block.stack_at_start, stack) || !locals_equal(locals, block.locals)  {
                         return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                     }
                 }
@@ -498,13 +527,14 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if default_block.stack_at_start == nil {
                     default_block.stack_at_start = new_clone(copy_stack(stack^))
+                    default_block.locals = slice.clone(locals)
                     
                     res := calculate_stack(vm, default_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
-                else if !stack_eq(default_block.stack_at_start, stack) {
+                else if !stack_eq(default_block.stack_at_start, stack) || !locals_equal(locals, default_block.locals)  {
                     return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .ldc2_w:
@@ -525,6 +555,17 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if !stack_push(stack, typ.value.(^Class)) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
+            case .newarray:
+                elems := stack_pop_class(stack)
+                if elems == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(elems) {
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
+                }
+                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+                typ := make_primitive(vm, array_type_primitives[index - 4], primitive_names[array_type_primitives[index - 4]], primitive_sizes[array_type_primitives[index - 4]])
+                stack_push(stack, make_array_type(vm, typ))
             case .new:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 typ := get_class(vm, this_method.parent.class_file, index)
@@ -734,7 +775,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
             case .iinc:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
-                t := this_method.locals[index] == nil ? vm.classes["int"] : this_method.locals[index]
+                t := locals[index] == nil ? vm.classes["int"] : locals[index]
                 if !type_is_integer(t) {
                     return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
@@ -753,12 +794,13 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
+                    next_block.locals = slice.clone(locals) 
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
-                else if !stack_eq(next_block.stack_at_start, stack) {
+                else if !stack_eq(next_block.stack_at_start, stack) || !locals_equal(locals, next_block.locals)  {
                     return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .if_acmpne, .if_acmpeq:
@@ -776,12 +818,13 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
+                    next_block.locals = slice.clone(locals) 
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
-                else if !stack_eq(next_block.stack_at_start, stack) {
+                else if !stack_eq(next_block.stack_at_start, stack) || !locals_equal(locals, next_block.locals)  {
                     return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .dup:
@@ -841,12 +884,13 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
+                    next_block.locals = slice.clone(locals) 
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
-                else if !stack_eq(next_block.stack_at_start, stack) {
+                else if !stack_eq(next_block.stack_at_start, stack) || !locals_equal(locals, next_block.locals)  {
                     return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .goto, .goto_w:
@@ -856,13 +900,18 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
+                    next_block.locals = slice.clone(locals) 
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
-                else if !stack_eq(next_block.stack_at_start, stack) {
-                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
+                else if !stack_eq(next_block.stack_at_start, stack) || !locals_equal(locals, next_block.locals)  {
+                    for local, i in locals {
+                        fmt.println(local.name, next_block.locals[i].name)
+                    }                   
+                    panic("")
+//                     return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
                 canEscape = false
             case .multianewarray:
@@ -908,6 +957,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
+            case .i2c:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(t) {
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["char"])
             case .i2l:
                 t := stack_pop_class(stack)
                 if t == nil {
@@ -976,12 +1034,11 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
         next := find_codeblock_by_start(cblocks, cb.end) 
         if next.stack_at_start == nil {
             next.stack_at_start = new_clone(copy_stack(stack^))
+            next.locals = slice.clone(locals) 
             return calculate_stack(vm, next, cblocks, this_method)
         }
-        else {
-            if !stack_eq(stack, next.stack_at_start) {
-                return verification_error("Invalid bytecode. Inconsistent stack", this_method, {})
-            }
+        else if !stack_eq(next.stack_at_start, stack) || !locals_equal(locals, next.locals)  {
+            return verification_error("Invalid bytecode. Inconsistent stack", this_method, {})
         }
     }
     return nil
@@ -995,7 +1052,8 @@ get_class :: proc(vm: ^VM, class_file: ^classparser.ClassFile, index: int) -> sh
     using classparser
     name := resolve_class_name(class_file, cast(u16)index)
     if name == nil {
-        Err(^Class, "Invalid bytecode")
+        
+        return Err(^Class, "Invalid bytecode")
     }
     return load_class(vm, name.(string))
 }

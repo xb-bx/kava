@@ -17,6 +17,7 @@ VM :: struct {
     object: ^Class,
     ctx: runtime.Context,
 }
+array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {
     PrimitiveType.Int = "int",
     PrimitiveType.Char = "char",

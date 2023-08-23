@@ -64,7 +64,7 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     } else {
         init_asm(&assembler, false)
     }
-    locals := jit_method_prolog(method, &assembler)
+    locals := jit_method_prolog(method, &codeblocks[0], &assembler)
     labels := make(map[int]Label)
     for cb in codeblocks {
         labels[cb.start] = create_label(&assembler)
@@ -113,14 +113,17 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     
 }
 
-jit_prepare_locals_indices :: proc(method: ^Method) -> []i32 {
+jit_prepare_locals_indices :: proc(method: ^Method, cb_first: ^CodeBlock) -> []i32 {
     res := make([dynamic]i32)
     locali := 0
     offset: i32 = -8
-    for locali < len(method.locals) {
+    for local in cb_first.locals {
+        fmt.println(local.name)
+    }
+    for locali < len(cb_first.locals) {
         append(&res, offset) 
-        arg := method.locals[locali]
-        if arg.primitive == PrimitiveType.Double || arg.primitive == PrimitiveType.Long {
+        arg := cb_first.locals[locali]
+        if arg != nil &&  (arg.primitive == PrimitiveType.Double || arg.primitive == PrimitiveType.Long) {
             append(&res, offset)
             locali += 1
         }
@@ -282,6 +285,10 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 assert(ok)
                 mov(assembler, Reg64.Rax, const)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
+            case .sipush:
+                stack_count += 1
+                mov(assembler, Reg64.Rax, transmute(u64)instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op)
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .bipush:
                 stack_count += 1
                 mov(assembler, Reg64.Rax, transmute(u64)instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op)
@@ -368,7 +375,24 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_invoke_static(ctx, instruction)
             case .invokevirtual:
                 jit_invoke_virtual(ctx, instruction)
+            case .irem:
+                stack_count -= 2
+                mov(assembler, Reg64.Rdx, 0)
+                mov_from(assembler, Reg32.R10d, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
+                mov_from(assembler, Reg32.Eax, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
+                idiv(assembler, Reg32.R10d)
+                stack_count += 1
+                mov_to(assembler, Reg64.Rbp, Reg64.Rdx, stack_base - 8 * stack_count)
+            case .idiv:
+                stack_count -= 2
+                mov(assembler, Reg64.Rdx, 0)
+                mov_from(assembler, Reg32.R10d, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
+                mov_from(assembler, Reg32.Eax, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
+                idiv(assembler, Reg32.R10d)
+                stack_count += 1
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .imul:
+                mov(assembler, Reg64.Rdx, 0)
                 stack_count -= 2
                 mov_from(assembler, Reg32.Eax, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
                 mov_from(assembler, Reg32.R10d, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
@@ -431,11 +455,19 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_null_check(assembler, Reg64.Rax)  
                 mov_from(assembler, Reg64.Rax, Reg64.Rax, offset)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
+            case .ifne:
+                start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                stack_count -= 1
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
+                mov(assembler, Reg64.R10, 0)
+                cmp(assembler, Reg64.Rax, Reg64.R10)
+                jne(assembler, labels[start])
             case .ifeq:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
                 mov(assembler, Reg64.R10, 0)
+                cmp(assembler, Reg64.Rax, Reg64.R10)
                 je(assembler, labels[start])
             case .ifle:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
@@ -471,6 +503,17 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov_from(assembler, Reg64.R10, Reg64.Rax)
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.R10, stack_base - 8 * stack_count)
+            case .castore:
+                stack_count -= 3
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
+                jit_null_check(assembler, Reg64.Rax)
+                mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 2))
+                mov_from(assembler, Reg64.R9, Reg64.Rbp, stack_base - 8 * (stack_count + 3))
+                mov(assembler, Reg64.R11, 2)
+                imul(assembler, Reg64.R10, Reg64.R11)
+                add(assembler, Reg64.Rax, size_of(ArrayHeader))
+                add(assembler, Reg64.Rax, Reg64.R10)
+                mov_to(assembler, Reg64.Rax, Reg16.R9w, cast(i32)0)
             case .caload:
                 stack_count -= 2
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
@@ -495,6 +538,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
                 movsx_reg64_reg32(assembler, Reg64.Rax, Reg32.Eax)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
+            case .i2c:
             case .i2d:
                 mov_from(assembler, reg_args[0], Reg64.Rbp, stack_base - 8 * stack_count)
                 mov(assembler, Reg64.Rax, transmute(u64)i2d)
@@ -528,6 +572,18 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 imm :i32= cast(i32)ops.op2
                 add(assembler, Reg64.Rax, imm)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, locals[ops.op1])
+            case .newarray:
+                index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                mov(assembler, reg_args[0], transmute(u64)vm)
+                typ := make_primitive(vm, array_type_primitives[index - 4], primitive_names[array_type_primitives[index - 4]], primitive_sizes[array_type_primitives[index - 4]])
+                mov(assembler, reg_args[1], transmute(u64)typ)
+                mov_from(assembler, reg_args[2], Reg64.Rbp, stack_base - 8 * stack_count)
+                mov(assembler, reg_args[3], Reg64.Rbp)
+                add(assembler, reg_args[3], stack_base - 8 * stack_count)
+                mov(assembler, Reg64.Rax, transmute(u64)gc_alloc_array)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
+                call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
             case .new:
                 stack_count += 1 
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
@@ -976,11 +1032,11 @@ find_method :: proc(class: ^Class, name: string, descriptor: string) -> ^Method 
     return nil
 }
 
-jit_method_prolog :: proc(method: ^Method, assembler: ^x86asm.Assembler) -> []i32 {
+jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.Assembler) -> []i32 {
     using x86asm
     push(assembler, Reg64.Rbp)
     mov(assembler, Reg64.Rbp, Reg64.Rsp)
-    indices := jit_prepare_locals_indices(method)
+    indices := jit_prepare_locals_indices(method, cb)
     jit_prepare_locals(method, indices, assembler)
     return indices
 }

@@ -31,7 +31,7 @@ Method :: struct {
     access_flags: classparser.MethodAccessFlags,
     ret_type: ^Class,
     args: []^Class,
-    locals: []^Class,
+    max_locals: int,
     code: Maybe(classparser.CodeAttribute),
     parent: ^Class,
     jitted_body: [^]u8,

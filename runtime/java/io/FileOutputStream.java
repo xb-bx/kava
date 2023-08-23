@@ -2,7 +2,7 @@ package java.io;
 import kava.Kava;
 public class FileOutputStream extends OutputStream {
     private long fd; 
-    public FileOutputStream(int fd) {
+    public FileOutputStream(long fd) {
         this.fd = fd;
     }
     @Override

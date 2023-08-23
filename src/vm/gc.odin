@@ -21,14 +21,16 @@ gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, siz
     obj.class = class
     output^ = obj
 }
-gc_alloc_array ::  proc(vm: ^VM, elem_class: ^Class, elems: int, output: ^^ArrayHeader) {
+gc_alloc_array ::  proc "c" (vm: ^VM, elem_class: ^Class, elems: int, output: ^^ArrayHeader) {
+    context = vm.ctx
     array_type := make_array_type(vm, elem_class) 
     array_obj: ^ArrayHeader = nil
     gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, size_of(ArrayHeader) + elem_class.size * elems)
     array_obj.length = elems 
     output^ = array_obj
 }
-gc_alloc_string :: proc(vm: ^VM, str: string, output: ^^ObjectHeader) {
+gc_alloc_string :: proc "c" (vm: ^VM, str: string, output: ^^ObjectHeader) {
+    context = vm.ctx
     array :^ArrayHeader = nil
     gc_alloc_array(vm, vm.classes["char"], len(str), &array) 
     chars_start := transmute(^u16)(transmute(int)array + size_of(ArrayHeader))

@@ -7,6 +7,7 @@ import "core:strings"
 import "core:path/filepath"
 import "core:intrinsics"
 import "core:slice"
+import "core:time"
 import "zip:zip"
 
 error :: proc(str: string, args: ..any) {
@@ -84,11 +85,11 @@ main :: proc() {
                 print_verification_error(blocks.error.(VerificationError))
                 error("")
             }
-            fmt.print("    locals: ")
-            for local in method.locals {
-                fmt.printf("%s ", local.name)
-            }
-            fmt.println()
+//             fmt.print("    locals: ")
+//             for local in method.locals {
+//                 fmt.printf("%s ", local.name)
+//             }
+//             fmt.println()
             for &block in blocks.value.([]CodeBlock) {
                 print_codeblock(&block)
             }
@@ -117,6 +118,7 @@ main :: proc() {
         str : ^ObjectHeader = nil
         gc_alloc_string(&vm, arg, &str)
         args_slice[i] = str 
+    
     }
     ((transmute(proc "c" (args: ^ArrayHeader))mainMethod.jitted_body))(args_array)
 
