@@ -61,39 +61,25 @@ read_info :: proc "c" (self: ^GDBReaderFuncs, cb: ^GDBSymbolCallbacks, memory: [
     symbol := (transmute(^shared.Symbol)memory)^
     obj := cb.object_open(cb)
     if obj == nil {
-        if true { panic("") }
         return .Fail
     }
-
     filename := target_read_cstring(cb.target_read, transmute(rawptr)symbol.file, symbol.file_len) 
     if filename == nil {
-        if true { panic("") }
         return .Fail
     }
     sym := cb.symtab_open(cb, obj, filename)
     if sym == nil {
-        if true { panic("") }
         return .Fail
     }
     functionname := target_read_cstring(cb.target_read, transmute(rawptr)symbol.function, symbol.function_len) 
     if functionname == nil {
-        if true { panic("") }
         return .Fail
     }
     block := cb->block_open(sym, nil, transmute(GDBCoreAddr)symbol.start, transmute(GDBCoreAddr)symbol.end, functionname)
     if block == nil {
-        if true { panic("") }
         return .Fail
     }
     lines := target_read_slice(shared.LineMapping, cb.target_read, symbol.line_mapping, symbol.line_mapping_len)
-//     defer delete(lines)
-//     gdblines := make([]GDBLineMapping, len(lines))
-//     for line, i in lines {
-//         gdblines[i] = GDBLineMapping { line = cast(i32)line.line, pc = transmute(GDBCoreAddr)line.pc + transmute(GDBCoreAddr)symbol.start }
-//     }
-    for i in 0..<len(lines) {
-        fmt.println((transmute([^]GDBLineMapping)slice.as_ptr(lines))[i])
-    }
     cb.line_mapping_add(cb, sym, cast(i32)len(lines), transmute([^]GDBLineMapping)slice.as_ptr(lines))
     cb.symtab_close(cb, sym)
     cb.object_close(cb, obj)

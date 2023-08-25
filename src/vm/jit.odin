@@ -103,8 +103,6 @@ jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Hand
         fmt.println(path)
         panic("could not create file")
     }
-//     path, _ = filepath.abs(path)
-    fmt.println(path)
     return path, handle
 }
 jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
@@ -175,11 +173,6 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     symbol.ctx = ctx
     symbol.file = strings.clone_to_cstring(file)
     symbol.file_len = len(symbol.file)
-    if symbol.file_len == 0 {
-        fmt.println(symbol.file, file)
-        assert(symbol.file_len > 0)
-        
-    }
     symbol.function = strings.clone_to_cstring(method.name)
     symbol.function_len = len(symbol.function)
     symbol.line_mapping = slice.as_ptr(jit_context.line_mapping[:])
@@ -195,7 +188,6 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     __jit_debug_descriptor.relevant_entry = entry
     __jit_debug_descriptor.first_entry = entry
     __jit_debug_descriptor.action_flags = 1
-    fmt.println(jit_context.line_mapping)
     __jit_debug_register_code()
     
 }
@@ -727,6 +719,24 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_null_check(assembler, Reg64.Rax)
                 mov_from(assembler, Reg64.Rax, Reg64.Rax, cast(i32)offset_of(ArrayHeader, length))
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
+            case .tableswitch:
+                table := instruction.(classparser.TableSwitch)
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
+                stack_count -= 1
+                mov(assembler, Reg64.R10, transmute(u64)table.low)
+                cmp(assembler, Reg64.Rax, Reg64.R10)
+                jlt(assembler, labels[table.default])
+                mov(assembler, Reg64.R10, transmute(u64)table.high)
+                cmp(assembler, Reg64.Rax, Reg64.R10)
+                jgt(assembler, labels[table.default])
+                sub(assembler, Reg64.Rax, table.low)
+                mov(assembler, Reg64.R10, 0)
+                for offset in table.offsets {
+                    cmp(assembler, Reg64.Rax, Reg64.R10)
+                    je(assembler, labels[offset])
+                    add(assembler, Reg64.R10, 1)
+                }
+                jmp(assembler, labels[table.default])
             case:
                 fmt.println(instruction)
                 panic("unimplemented")

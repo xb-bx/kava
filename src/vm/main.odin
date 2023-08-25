@@ -67,6 +67,8 @@ main :: proc() {
         error(app.error.(string))
     }
     initialize_kava(&vm)
+    stopwatch := time.Stopwatch {}
+    time.stopwatch_start(&stopwatch)
     for class_name, class in vm.classes {
         for &method in class.methods {
             if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native | classparser.MethodAccessFlags.Abstract) {
@@ -80,6 +82,9 @@ main :: proc() {
             jit_method(&vm, &method, blocks.value.([]CodeBlock))
         }
     }
+    time.stopwatch_stop(&stopwatch)
+    dur := time.stopwatch_duration(stopwatch)
+    fmt.println("JIT took", dur)
     for name, class in vm.classes {
         initializer := find_method(class, "<clinit>", "()V")
         if initializer != nil && !class.class_initializer_called {
