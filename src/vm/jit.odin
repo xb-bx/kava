@@ -1,12 +1,16 @@
 package vm
 import "x86asm:x86asm"
 import "kava:classparser"
+import "kava:shared"
 import "core:fmt"
 import "core:sys/unix"
 import "core:runtime"
 import "core:strings"
 import "core:math"
 import "core:mem/virtual"
+import "core:os"
+import "core:path/filepath"
+import "core:slice"
 
 JittingContext :: struct {
     vm: ^VM,
@@ -17,6 +21,9 @@ JittingContext :: struct {
     labels: map[int]x86asm.Label,
     stack_base: i32,
     stack_count: i32,
+    handle: os.Handle,
+    line_mapping: [dynamic]shared.LineMapping,
+    line: int,
 }
 
 
@@ -55,7 +62,51 @@ constants := map[classparser.Opcode]u64 {
     classparser.Opcode.lconst_1 = 0,
     classparser.Opcode.aconst_null = 0,
 }
+write_replace_descriptor :: proc(builder: ^strings.Builder, str: string) {
+    using strings
+    for c in str {
+        if c == '/' {
+            write_rune(builder, '.')
+        } else {
+            write_rune(builder, c)
+        }
+    }
+}
+jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Handle) {
+    if !os.exists("cache") {
+        err := os.make_directory("cache", 0o777)
+        if err != 0 {
+            panic("could not create folder")
+        }
+    }
 
+    using strings
+    builder: Builder = {}
+    builder_init(&builder)
+    write_string(&builder, "cache/")
+    write_replace_descriptor(&builder, method.parent.name)
+    write_rune(&builder, '.')
+    if method.name == "<init>" {
+        write_string(&builder, "_clinit_")
+    }
+    else if method.name == "<clinit>" {
+        write_string(&builder, "_init_")
+    }
+    else  {
+        write_string(&builder, method.name)
+    }
+    write_replace_descriptor(&builder, method.descriptor)
+    path := to_string(builder)
+    handle, err := os.open(path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o666)
+    if err != 0 {
+        fmt.println(err)
+        fmt.println(path)
+        panic("could not create file")
+    }
+//     path, _ = filepath.abs(path)
+    fmt.println(path)
+    return path, handle
+}
 jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     using x86asm 
     assembler := Assembler {}
@@ -76,6 +127,8 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         locals = locals,
         assembler = &assembler,
         labels = labels,
+        line_mapping = make([dynamic]shared.LineMapping),
+        line = 1,
     }
     stack_base:i32 = 0
     if len(locals) > 0 {
@@ -87,12 +140,15 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         mov(&assembler, Reg64.R10, transmute(u64)&method.parent.class_initializer_called)
         mov_to(&assembler, Reg64.R10, Reg64.R10)
     }
+    file, handle := jit_create_bytecode_file_for_method(method)
+    jit_context.handle = handle
     for &cb in codeblocks {
         jit_compile_cb(&jit_context, &cb)
     }
+    os.close(handle)
     assemble(&assembler)
     when ODIN_DEBUG {
-        if method.parent.name == "HelloWorld" {
+        {
         fmt.printf("%s.%s:%s\n", method.parent.name, method.name, method.descriptor)
         fmt.println(locals)
         fmt.println(stack_base)
@@ -109,7 +165,38 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     for b, i in assembler.bytes {
         body[i] = b
     }
+    for i in 0..<len(jit_context.line_mapping) {
+        jit_context.line_mapping[i].pc += transmute(int)body
+    }
+    jit_context.line_mapping[0].pc = transmute(int)body
     method.jitted_body = body
+    symbol := new(shared.Symbol)
+    ctx := context
+    symbol.ctx = ctx
+    symbol.file = strings.clone_to_cstring(file)
+    symbol.file_len = len(symbol.file)
+    if symbol.file_len == 0 {
+        fmt.println(symbol.file, file)
+        assert(symbol.file_len > 0)
+        
+    }
+    symbol.function = strings.clone_to_cstring(method.name)
+    symbol.function_len = len(symbol.function)
+    symbol.line_mapping = slice.as_ptr(jit_context.line_mapping[:])
+    symbol.line_mapping_len = len(jit_context.line_mapping)
+    symbol.start = transmute(int)body
+    symbol.end = symbol.start + len(assembler.bytes)
+    entry := new(JitCodeEntry)
+
+    entry.next_entry = nil
+    entry.prev_entry = nil
+    entry.symfile = transmute([^]u8)symbol
+    entry.size = size_of(shared.Symbol)
+    __jit_debug_descriptor.relevant_entry = entry
+    __jit_debug_descriptor.first_entry = entry
+    __jit_debug_descriptor.action_flags = 1
+    fmt.println(jit_context.line_mapping)
+    __jit_debug_register_code()
     
 }
 
@@ -117,9 +204,6 @@ jit_prepare_locals_indices :: proc(method: ^Method, cb_first: ^CodeBlock) -> []i
     res := make([dynamic]i32)
     locali := 0
     offset: i32 = -8
-    for local in cb_first.locals {
-        fmt.println(local.name)
-    }
     for locali < len(cb_first.locals) {
         append(&res, offset) 
         arg := cb_first.locals[locali]
@@ -272,8 +356,8 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     set_label(assembler, labels[cb.start])
 
     for instruction in cb.code {
-//         fmt.println(stack_count)
-//         print_instruction(instruction)
+        append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
+        line += print_instruction(instruction, handle, "")
         assert(stack_count >= 0)
         lbl := create_label(assembler)
         set_label(assembler, lbl)
@@ -429,7 +513,6 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
             
                 fieldres := get_fieldrefconst_field(vm, method.parent.class_file, index)
-                fmt.println(fieldres.error)
                 field := fieldres.value.(^Field)
                 
                 mov(assembler, Reg64.Rax, transmute(u64)&field.static_data)

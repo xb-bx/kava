@@ -12,3 +12,11 @@ TODO:
 
 Goals:
 - [ ] Run Minecraft
+
+
+### Debugging with gdb
+
+Build the project
+Start gdb
+run `jit-reader-load <path/to/kava>/gdbplugin.so`
+Now when you will step into jitted function you will see java bytecode

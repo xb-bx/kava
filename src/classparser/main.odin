@@ -1486,7 +1486,7 @@ print_class_info :: proc(class: ClassFile) {
             code := method.bytecode.(CodeAttribute)
             fmt.printf("max_stack: %i max_locals: %i\n", code.max_stack, code.max_locals)
             for instr in code.code {
-                print_instruction(instr)
+                print_instruction(instr, os.stdout)
             }
         }
     }
@@ -1494,39 +1494,47 @@ print_class_info :: proc(class: ClassFile) {
     fmt.println(class.attributes)
 }
 
-print_instruction :: proc(instr: Instruction) {
+print_instruction :: proc(instr: Instruction, file: os.Handle, tab: string = "\t") -> int {
     switch in instr {
         case SimpleInstruction: {
-            fmt.printf("\t%3i: %s ",instr.(SimpleInstruction).offset, instr.(SimpleInstruction).opcode) 
+            fmt.fprintf(file, "%s%3i: %s ",tab, instr.(SimpleInstruction).offset, instr.(SimpleInstruction).opcode) 
             switch in instr.(SimpleInstruction).operand {
                 case OneOperand: {
-                    fmt.println(instr.(SimpleInstruction).operand.(OneOperand).op)
+                    fmt.fprintln(file, instr.(SimpleInstruction).operand.(OneOperand).op)
                 }
                 case TwoOperands: {
                     ops := instr.(SimpleInstruction).operand.(TwoOperands)
-                    fmt.printf("%i %i\n", ops.op1, ops.op2)
+                    fmt.fprintf(file, "%i %i\n", ops.op1, ops.op2)
                 }
                 case nil:
-                    fmt.println()
+                    fmt.fprintln(file)
             }
+            return 1
         } 
         case TableSwitch:
             table := instr.(TableSwitch)
-            fmt.printf("\t%3i: %s low: %i high: %i\n", table.offset, table.opcode, table.low, table.high) 
+            fmt.fprintf(file, "%s%3i: %s low: %i high: %i\n", tab, table.offset, table.opcode, table.low, table.high) 
+            lines := 2
             for off, i in table.offsets {
-                fmt.printf("\t\t%7i: %i\n", i + table.low, off) 
+                lines += 1
+                fmt.fprintf(file, "%s\t%7i: %i\n", tab, i + table.low, off) 
             }
-            fmt.printf("\t\tdefault: %i\n", table.default) 
+            fmt.fprintf(file, "%s\tdefault: %i\n",tab, table.default) 
+            return lines
         case LookupSwitch:
             table := instr.(LookupSwitch)
-            fmt.printf("\t%3i: %s npairs = %i\n", table.offset, table.opcode, len(table.pairs)) 
+            lines := 2
+            fmt.fprintf(file, "%s%3i: %s npairs = %i\n", tab, table.offset, table.opcode, len(table.pairs)) 
             for pair in table.pairs {
-                fmt.printf("\t\t%7i: %i\n", pair.fst, pair.snd) 
+                lines += 1
+                fmt.fprintf(file, "%s\t%7i: %i\n", tab, pair.fst, pair.snd) 
             }
-            fmt.printf("\t\tdefault: %i\n", table.default) 
+            fmt.fprintf(file, "%s\tdefault: %i\n", tab, table.default) 
+            return lines
 
 
     }
+    return 0
 }
 
 main :: proc() {

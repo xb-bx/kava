@@ -3,6 +3,7 @@ import "kava:classparser"
 import "kava:shared"
 import "core:slice"
 import "core:fmt"
+import "core:os"
 
 CodeBlock :: struct {
     start: int,
@@ -333,7 +334,7 @@ print_codeblock :: proc(cb: ^CodeBlock) {
         fmt.println()
     }
     for instr in cb.code {
-        classparser.print_instruction(instr)
+        classparser.print_instruction(instr, os.stdout)
     }
     
 }

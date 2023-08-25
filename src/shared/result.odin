@@ -1,5 +1,6 @@
 package shared
 import "core:fmt"
+import "core:runtime"
 Result :: struct($TOk: typeid, $TErr: typeid) {
     value: Maybe(TOk),
     error: Maybe(TErr),
@@ -22,4 +23,20 @@ Err :: proc($TOk: typeid, value: $TErr) -> Result(TOk, TErr) {
         is_ok = false,
         is_err = true,
     }
+}
+Symbol :: struct {
+    file_len: int,
+    file: cstring,
+    function_len: int,
+    function: cstring,
+    line_mapping_len: int,
+    line_mapping: [^]LineMapping,
+    ctx: runtime.Context,
+    start: int,
+    end: int,
+
+}
+LineMapping :: struct {
+    line: i32,
+    pc: int,
 }

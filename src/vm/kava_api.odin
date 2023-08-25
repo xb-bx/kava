@@ -43,6 +43,16 @@ read_byte :: proc "c" (fd: os.Handle) -> i32 {
     }
     return cast(i32)b[0]
 }
+/// read (J[BII)I 
+read_bytes :: proc "c" (fd: os.Handle, bytes: ^ArrayHeader, off: i32, len: i32) -> i32 {
+    context = vm.ctx
+    slice := array_to_slice(u8, bytes)[off:off+len]
+    res, err := os.read(fd, slice)
+    if err != 0 {
+        panic("")
+    }
+    return cast(i32)res
+}
 // getStdin ()Ljava/io/FileInputStream;
 getStdin :: proc "c" () -> ^ObjectHeader {
     context = vm.ctx

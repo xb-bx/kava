@@ -11,5 +11,5 @@ public class Kava {
     public static native void flush(long handle);
     public static native int getAvailableBytes(long handle);
     public static native int read(long handle);
-
+    public static native int read(long handle, byte[] bytes, int off, int len);
 }

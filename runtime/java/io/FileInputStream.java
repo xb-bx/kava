@@ -12,10 +12,16 @@ public class FileInputStream extends InputStream {
     public int read() {
         return kava.Kava.read(fd);
     }
-    public int read(byte[] bytes)  { throw new NotImplementedException(); }
-    public int read(byte[] bytes, int off, int len)  { throw new NotImplementedException(); }
+    public int read(byte[] bytes)  { 
+        return this.read(bytes, 0, bytes.length);
+    }
+    public int read(byte[] bytes, int off, int len)  { 
+        return kava.Kava.read(fd, bytes, off, len);
+    }
     public long skip(long n)  { throw new NotImplementedException(); }
-    public void close() { throw new NotImplementedException(); }
+    public void close() { 
+        kava.Kava.close(fd);
+    }
     public void mark(long mark)  { throw new NotImplementedException(); }
     public boolean markSupported()  { throw new NotImplementedException(); }
     public void reset()  { throw new NotImplementedException(); }

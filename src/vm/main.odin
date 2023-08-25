@@ -68,34 +68,16 @@ main :: proc() {
     }
     initialize_kava(&vm)
     for class_name, class in vm.classes {
-        fmt.printf("Class %s size: %i\n", class_name, class.size)
-        if class.instance_fields != nil {
-            for field in class.instance_fields {
-                fmt.println(field.name, field.offset)        
-            }
-        }
         for &method in class.methods {
             if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native | classparser.MethodAccessFlags.Abstract) {
                 continue
             }
-            fmt.printf("  Method %s:%s\n", method.name, method.ret_type.name)
-
             blocks := (split_method_into_codeblocks(&vm, &method))
             if blocks.is_err {
                 print_verification_error(blocks.error.(VerificationError))
                 error("")
             }
-//             fmt.print("    locals: ")
-//             for local in method.locals {
-//                 fmt.printf("%s ", local.name)
-//             }
-//             fmt.println()
-            for &block in blocks.value.([]CodeBlock) {
-                print_codeblock(&block)
-            }
-            {
-                jit_method(&vm, &method, blocks.value.([]CodeBlock))
-            }
+            jit_method(&vm, &method, blocks.value.([]CodeBlock))
         }
     }
     for name, class in vm.classes {
