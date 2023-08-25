@@ -6,13 +6,13 @@ public class PrintStream {
         this.fs = fs;
     }
     public void println(String str) {
-        for(int i = 0; i < str.length(); i++) {
-            fs.write(str.charAt(i));
-        }
+        this.print(str);
         fs.write('\n');
     }    
     public void print(String str) {
-        throw new NotImplementedException(); 
+        for(int i = 0; i < str.length(); i++) {
+            fs.write(str.charAt(i));
+        }
     }    
     public void println() {
         throw new NotImplementedException();

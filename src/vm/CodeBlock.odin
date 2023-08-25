@@ -618,6 +618,22 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 } 
                 
+            case .iastore:
+                if stack.count < 3 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value := stack_pop_class(stack)
+                index := stack_pop_class(stack)
+                array := stack_pop(stack)
+                if !type_is_integer(value) {
+                    return verification_error("Invalid bytecode. value must be reference type", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
+                }
+                if !is_stacktype_array_of(array, value) {
+                    return verification_error("Invalid bytecode. Expected array of integers", this_method, instr)
+                }
             case .castore:
                 if stack.count < 3 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
@@ -856,6 +872,24 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected array of objects", this_method, instr)
                 }
                 stack_push(stack, arr.class.underlaying)
+            case .iaload:
+                index := stack_pop_class(stack)
+                if index == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Expected integer on stack", this_method, instr)
+                }
+                arr := stack_pop(stack)
+                if arr == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !is_stacktype_array_of(arr, vm.classes["int"]) {
+                    return verification_error("Invalid bytecode. Expected array of chars", this_method, instr)
+                }
+                if !stack_push(stack, vm.classes["int"]) {
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
+                }
             case .caload:
                 index := stack_pop_class(stack)
                 if index == nil {

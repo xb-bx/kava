@@ -421,6 +421,13 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                         panic("should not happen")
                 }
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
+            case .if_icmplt:
+                start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                stack_count -= 2
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
+                mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
+                cmp(assembler, Reg32.R10d, Reg32.Eax)
+                jlt(assembler, labels[start])
             case .if_icmpge:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
@@ -589,6 +596,30 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 add(assembler, Reg64.Rax, size_of(ArrayHeader))
                 add(assembler, Reg64.Rax, Reg64.R10)
                 mov_to(assembler, Reg64.Rax, Reg16.R9w, cast(i32)0)
+            case .iastore:
+                stack_count -= 3
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
+                jit_null_check(assembler, Reg64.Rax)
+                mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 2))
+                mov_from(assembler, Reg64.R9, Reg64.Rbp, stack_base - 8 * (stack_count + 3))
+                mov(assembler, Reg64.R11, 4)
+                imul(assembler, Reg64.R10, Reg64.R11)
+                add(assembler, Reg64.Rax, size_of(ArrayHeader))
+                add(assembler, Reg64.Rax, Reg64.R10)
+                mov_to(assembler, Reg64.Rax, Reg32.R9d, cast(i32)0)
+            case .iaload:
+                stack_count -= 2
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
+                jit_null_check(assembler, Reg64.Rax)
+                mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 2))
+                mov(assembler, Reg64.R11, 4)
+                imul(assembler, Reg64.R10, Reg64.R11)
+                add(assembler, Reg64.Rax, size_of(ArrayHeader))
+                add(assembler, Reg64.Rax, Reg64.R10)
+                mov(assembler, Reg32.R10d, 0)
+                mov_from(assembler, Reg32.R10d, Reg64.Rax)
+                stack_count += 1
+                mov_to(assembler, Reg64.Rbp, Reg64.R10, stack_base - 8 * stack_count)
             case .caload:
                 stack_count -= 2
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
@@ -671,6 +702,31 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
                 when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
+            case .multianewarray:
+                index := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
+                dimensions := cast(i32)instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op2
+                class := get_class(vm, method.parent.class_file, index).value.(^Class)
+                stack_count -= dimensions
+                elems_size := dimensions * 8
+                if elems_size % 16 != 0 {
+                    elems_size += 8
+                }
+                sub(assembler, Reg64.Rsp, cast(int)elems_size)
+                mov(assembler, reg_args[2], Reg64.Rsp)
+                for i in 1..=dimensions {
+                    mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + i)) 
+                    mov_to(assembler, reg_args[2], Reg64.Rax, (i - 1) * 8)
+                }
+                stack_count += 1
+                mov(assembler, reg_args[0], transmute(u64)vm)
+                mov(assembler, reg_args[1], transmute(u64)class)
+                mov(assembler, reg_args[3], Reg64.Rbp)
+                add(assembler, reg_args[3], stack_base - 8 * stack_count)
+                mov(assembler, Reg64.Rax, transmute(u64)gc_alloc_multiarray)
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
+                call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
+                add(assembler, Reg64.Rsp, elems_size)
             case .dup:
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * stack_count)
                 stack_count += 1

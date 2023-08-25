@@ -21,6 +21,28 @@ gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, siz
     obj.class = class
     output^ = obj
 }
+array_is_multidimensional :: proc "c" (arrayclass: ^Class) -> bool {
+    return arrayclass.underlaying.class_type == ClassType.Array
+}
+gc_alloc_multiarray ::  proc "c" (vm: ^VM, arrayclass: ^Class, elems: [^]int, output: ^^ArrayHeader) {
+    context = vm.ctx
+    class := arrayclass
+    gc_alloc_array(vm, class, elems[0], output)
+    if array_is_multidimensional(class.underlaying) {
+        for i in 0..<elems[0] { 
+            elem := transmute(^^ArrayHeader)(transmute(int)(output^) + size_of(ArrayHeader) + i * size_of(rawptr))
+            gc_alloc_multiarray(vm, class.underlaying, shift_c_array(elems, 1), elem)
+        }
+    } else {
+        for i in 0..<elems[0] {
+            elem := transmute(^^ArrayHeader)(transmute(int)(output^) + size_of(ArrayHeader) + i * size_of(rawptr))
+            gc_alloc_array(vm, class.underlaying, elems[1], elem)
+        }
+    }
+}
+shift_c_array :: proc(array: [^]$T, shift: int) -> [^]T {
+    return transmute([^]T)((transmute(int)array) + shift * size_of(T))
+}
 gc_alloc_array ::  proc "c" (vm: ^VM, elem_class: ^Class, elems: int, output: ^^ArrayHeader) {
     context = vm.ctx
     array_type := make_array_type(vm, elem_class) 
