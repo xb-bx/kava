@@ -503,15 +503,15 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jmp(assembler, labels[start])
             case .invokespecial:
                 mov(assembler, Reg64.Rax, transmute(u64)get_instr_offset(instruction))
-                mov_to(assembler, Reg64.Rbp, Reg64.Rax, -8)
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc)))
                 jit_invoke_special(ctx, instruction)
             case .invokestatic:
                 mov(assembler, Reg64.Rax, transmute(u64)get_instr_offset(instruction))
-                mov_to(assembler, Reg64.Rbp, Reg64.Rax, -8)
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc)))
                 jit_invoke_static(ctx, instruction)
             case .invokevirtual:
                 mov(assembler, Reg64.Rax, transmute(u64)get_instr_offset(instruction))
-                mov_to(assembler, Reg64.Rbp, Reg64.Rax, -8)
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc)))
                 jit_invoke_virtual(ctx, instruction)
             case .irem:
                 stack_count -= 2
