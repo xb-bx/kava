@@ -12,6 +12,7 @@ CodeBlock :: struct {
     code: []classparser.Instruction,
     locals: []^Class,
     visited: bool,
+    is_exception_handler: bool,
 }
 VerificationError :: struct {
     msg: string,
@@ -75,15 +76,15 @@ split_instructions_by_byteoffset :: proc(instructions: []classparser.Instruction
     }
 }
 locals_equal :: proc(local1: []^Class, locals2: []^Class) -> bool {
-    for local, i in local1 {
-        local2 := locals2[i]
-        if local == nil || local2 == nil {
-            continue
-        }
-        if local != local2 {
-            return false
-        }
-    } 
+//     for local, i in local1 {
+//         local2 := locals2[i]
+//         if local == nil || local2 == nil {
+//             continue
+//         }
+//         if local != local2 {
+//             return false
+//         }
+//     } 
     return true
 }
 split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result([]CodeBlock, VerificationError) {
@@ -106,22 +107,6 @@ split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result(
         }
     }
     else {
-//         blocki := 0
-//         for blocki < len(blocks) - 1 {
-//             start := blocks[blocki]
-//             instrs :=  split_instructions_by_byteoffset(instructions, start, blocks[blocki + 1], blocki + 1 == len(blocks) - 1)
-//             if start != 0 && start != get_instr_offset(instructions[len(instructions) - 1]){
-//                 instrs = instrs[1:]
-//             }
-//             res[blocki] = CodeBlock {
-//                 start = start,
-//                 end = blocks[blocki + 1],
-//                 stack_at_start = nil,
-//                 code = instrs,
-//                 visited = false,
-//             }
-//             blocki += 1
-//         }
         blocki := 0
         start := 0
         i := 0
@@ -166,7 +151,27 @@ split_method_into_codeblocks :: proc(vm: ^VM, method: ^Method) -> shared.Result(
             res[0].locals[i] = arg
         }
     }
+    for exception in method.code.(CodeAttribute).exception_table {
+        cb := find_codeblock_by_start(res, cast(int)exception.handler_pc)
+        class := get_class(vm, method.parent.class_file, cast(int)exception.catch_type)
+        if class.is_err {
+            return Err([]CodeBlock, verification_error(class.error.(string), method, {}))
+        }
+        cb.stack_at_start = new_clone(make_stack(cast(int)codeattr.max_stack))
+        cb.is_exception_handler = true
+        stack_push(cb.stack_at_start, class.value.(^Class))
+    }
     err := calculate_stack(vm, &res[0], res, method) 
+    for exception in method.code.(CodeAttribute).exception_table {
+        cb := find_codeblock_by_start(res, cast(int)exception.handler_pc)
+        if !cb.visited {
+            err := calculate_stack(vm, cb, res, method)
+            if err != nil {
+                return Err([]CodeBlock, err.(VerificationError))
+            }
+        } 
+    }
+
     if err != nil {
         return Err([]CodeBlock, err.(VerificationError))
     }
@@ -321,7 +326,7 @@ is_array_of :: proc(array_class: ^Class, elem_class: ^Class) -> bool {
 is_reference_type :: proc(vm: ^VM, type: ^Class) -> bool {
     return type == vm.object || is_subtype_of(type, vm.object)
 }
-print_codeblock :: proc(cb: ^CodeBlock) {
+print_codeblock :: proc(cb: ^CodeBlock, class: ^Class) {
     fmt.printf("start: %i end: %i\n", cb.start, cb.end)
 
     if cb.stack_at_start != nil {
@@ -334,7 +339,7 @@ print_codeblock :: proc(cb: ^CodeBlock) {
         fmt.println()
     }
     for instr in cb.code {
-        classparser.print_instruction(instr, os.stdout)
+        print_instruction_with_const(instr, os.stdout, class.class_file)
     }
     
 }
@@ -612,7 +617,8 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !is_reference_type(vm, instance.class) {
-                    return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
+                    panic("")
+//                     return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
                 }
                 if !stack_push(stack, typ.value.(^Class)) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
@@ -1052,11 +1058,11 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 stack_push(stack, value1)
             case .arraylength:
-                array := stack_pop_class(stack)
+                array := stack_pop(stack)
                 if array == nil {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
-                if array.class_type != ClassType.Array {
+                if array.class.class_type != ClassType.Array {
                     return verification_error("Invalid bytecode. Expected array", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
@@ -1073,7 +1079,16 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
             return calculate_stack(vm, next, cblocks, this_method)
         }
         else if !stack_eq(next.stack_at_start, stack) || !locals_equal(locals, next.locals)  {
-            return verification_error("Invalid bytecode. Inconsistent stack", this_method, {})
+            fmt.println(cb.code[len(cb.code) - 1])
+            for local in locals {
+                fmt.printf("%s ", local == nil ? "<nil>" : local.name)
+            }
+            fmt.println()
+            for local in next.locals {
+                fmt.printf("%s ", local == nil ? "<nil>" : local.name)
+            }
+            panic("")
+//             return verification_error("Invalid bytecode. Inconsistent stack", this_method, {})
         }
     }
     return nil

@@ -35,6 +35,8 @@ Method :: struct {
     code: Maybe(classparser.CodeAttribute),
     parent: ^Class,
     jitted_body: [^]u8,
+    exception_table: []ExceptionInfo,
+    stack_base: i32,
 }
 Class :: struct {
     name: string,
@@ -51,4 +53,10 @@ Class :: struct {
     size: int,
     size_without_header: int,
     class_initializer_called: bool,
+}
+ExceptionInfo :: struct {
+    start: int,
+    end: int,
+    exception: ^Class,
+    offset: int,
 }

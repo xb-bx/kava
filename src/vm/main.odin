@@ -94,6 +94,8 @@ main :: proc() {
             class.class_initializer_called = true;
         }
     }
+    arr := vm.classes["[[[C"]
+    fmt.println(arr)
     mainMethod := find_method(app.value.(^Class), "main", "([Ljava/lang/String;)V")
     if mainMethod == nil {
         error("Could not find entry point")

@@ -27,7 +27,7 @@ array_is_multidimensional :: proc "c" (arrayclass: ^Class) -> bool {
 gc_alloc_multiarray ::  proc "c" (vm: ^VM, arrayclass: ^Class, elems: [^]int, output: ^^ArrayHeader) {
     context = vm.ctx
     class := arrayclass
-    gc_alloc_array(vm, class, elems[0], output)
+    gc_alloc_array(vm, class.underlaying, elems[0], output)
     if array_is_multidimensional(class.underlaying) {
         for i in 0..<elems[0] { 
             elem := transmute(^^ArrayHeader)(transmute(int)(output^) + size_of(ArrayHeader) + i * size_of(rawptr))
@@ -36,7 +36,7 @@ gc_alloc_multiarray ::  proc "c" (vm: ^VM, arrayclass: ^Class, elems: [^]int, ou
     } else {
         for i in 0..<elems[0] {
             elem := transmute(^^ArrayHeader)(transmute(int)(output^) + size_of(ArrayHeader) + i * size_of(rawptr))
-            gc_alloc_array(vm, class.underlaying, elems[1], elem)
+            gc_alloc_array(vm, class.underlaying.underlaying, elems[1], elem)
         }
     }
 }

@@ -1,5 +1,4 @@
 package java.io;
-import java.lang.NotImplementedException;
 public class PrintStream {
     private FileOutputStream fs;
     public PrintStream(FileOutputStream fs) {
@@ -15,7 +14,7 @@ public class PrintStream {
         }
     }    
     public void println() {
-        throw new NotImplementedException();
+        fs.write('\n');
     }
 }
 

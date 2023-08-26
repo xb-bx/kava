@@ -5,6 +5,17 @@ public class String {
     private int offset;
     private int length;
 
+    public String(char[] buf, int off, int len) {
+        this.value = buf;
+        this.offset = off;
+        this.length = len;
+    }
+    public String() {
+        this.value = new char[0];
+        this.offset = 0;
+        this.length = 0;
+        
+    }
     public char charAt(int c) {
         return value[offset + c];
     }
@@ -22,6 +33,9 @@ public class String {
     }
     public int length() {
         return this.length;
+    }
+    public static String valueOf(char c) {
+        return new String(new char[] {c}, 0, 1);
     }
     public static String valueOf(int num) { 
         if(num == 0) return "0";

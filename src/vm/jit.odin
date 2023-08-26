@@ -12,6 +12,13 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 
+
+when ODIN_OS == .Windows {
+    parameter_registers := [?]x86asm.Reg64 { x86asm.Reg64.Rcx, x86asm.Reg64.Rdx, x86asm.Reg64.R8, x86asm.Reg64.R9 }
+} else {
+    parameter_registers := [?]x86asm.Reg64 { x86asm.Reg64.Rdi, x86asm.Reg64.Rsi, x86asm.Reg64.Rdx, x86asm.Reg64.Rcx, x86asm.Reg64.R8, x86asm.Reg64.R9 }
+}
+
 JittingContext :: struct {
     vm: ^VM,
     method: ^Method,
@@ -47,6 +54,7 @@ alloc_executable :: proc(size: uint) -> [^]u8 {
 
 }
 constants := map[classparser.Opcode]u64 {
+    classparser.Opcode.aconst_null = 0,
     classparser.Opcode.iconst_0 = 0,
     classparser.Opcode.iconst_1 = 1,
     classparser.Opcode.iconst_2 = 2,
@@ -87,10 +95,10 @@ jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Hand
     write_replace_descriptor(&builder, method.parent.name)
     write_rune(&builder, '.')
     if method.name == "<init>" {
-        write_string(&builder, "_clinit_")
+        write_string(&builder, "_init_")
     }
     else if method.name == "<clinit>" {
-        write_string(&builder, "_init_")
+        write_string(&builder, "_clinit_")
     }
     else  {
         write_string(&builder, method.name)
@@ -128,10 +136,11 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         line_mapping = make([dynamic]shared.LineMapping),
         line = 1,
     }
-    stack_base:i32 = 0
+    stack_base:i32 = -size_of(StackEntry)
     if len(locals) > 0 {
         stack_base = locals[len(locals) - 1]
     }
+    method.stack_base = stack_base
     jit_context.stack_base = stack_base
     if method.name == "<clinit>" {
         mov(&assembler, Reg64.Rax, 1)    
@@ -146,18 +155,28 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     os.close(handle)
     assemble(&assembler)
     when ODIN_DEBUG {
-        {
-        fmt.printf("%s.%s:%s\n", method.parent.name, method.name, method.descriptor)
-        fmt.println(locals)
-        fmt.println(stack_base)
-        for mnemonic in assembler.mnemonics {
-            fmt.println(mnemonic) 
-        }
-        for b in assembler.bytes {
-            fmt.printf("%2X", b)
-        }
-        fmt.println()
-        }
+//         {
+//         fmt.printf("%s.%s:%s\n", method.parent.name, method.name, method.descriptor)
+//         fmt.println(locals)
+//         fmt.println(stack_base)
+//         for mnemonic in assembler.mnemonics {
+//             fmt.println(mnemonic) 
+//         }
+//         for b in assembler.bytes {
+//             fmt.printf("%2X", b)
+//         }
+//         fmt.println()
+//         }
+    }
+    exceptions := method.code.(classparser.CodeAttribute).exception_table 
+    method.exception_table = make([]ExceptionInfo, len(exceptions))
+    for exception, i in exceptions {
+        exc := ExceptionInfo {} 
+        exc.start = cast(int)exception.start_pc
+        exc.end = cast(int)exception.end_pc
+        exc.exception = get_class(vm, method.parent.class_file, cast(int)exception.catch_type).value.(^Class)
+        exc.offset = labels[cast(int)exception.handler_pc].offset
+        method.exception_table[i] = exc
     }
     body := alloc_executable(len(assembler.bytes))
     for b, i in assembler.bytes {
@@ -195,7 +214,7 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
 jit_prepare_locals_indices :: proc(method: ^Method, cb_first: ^CodeBlock) -> []i32 {
     res := make([dynamic]i32)
     locali := 0
-    offset: i32 = -8
+    offset: i32 = -8 - size_of(StackEntry)
     for locali < len(cb_first.locals) {
         append(&res, offset) 
         arg := cb_first.locals[locali]
@@ -345,17 +364,23 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         r := [?]Reg64 { Reg64.Rdi, Reg64.Rsi, Reg64.Rdx, Reg64.Rcx, Reg64.R8, Reg64.R9 }
         reg_args = r[:]
     }
+    stack_count = cast(i32)cb.stack_at_start.count
     set_label(assembler, labels[cb.start])
-
+    labels[cb.start] = { id = labels[cb.start].id, offset = len(assembler.bytes) }
+    if cb.is_exception_handler {
+        // push exception object onto the stack
+        mov_to(assembler, Reg64.Rbp, Reg64.Rdi, stack_base - 8 * stack_count)
+    }
     for instruction in cb.code {
         append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
-        line += print_instruction(instruction, handle, "")
+        line += print_instruction_with_const(instruction, handle, method.parent.class_file, "")
         assert(stack_count >= 0)
         lbl := create_label(assembler)
         set_label(assembler, lbl)
         #partial switch get_instr_opcode(instruction) {
             case .iconst_m1, .iconst_0, .iconst_1, .iconst_2, .iconst_3, .iconst_4, .iconst_5,
-                .dconst_0, .dconst_1, .fconst_0, .fconst_1, .lconst_0, .lconst_1:
+                .dconst_0, .dconst_1, .fconst_0, .fconst_1, .lconst_0, .lconst_1,
+                .aconst_null:
                 stack_count += 1
                 const, ok := constants[get_instr_opcode(instruction)]
                 assert(ok)
@@ -394,10 +419,20 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 }
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case ._return:
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32 )}
+                mov(assembler, Reg64.Rax, transmute(u64)stack_trace_pop)
+                mov(assembler, Reg64.Rdi, transmute(u64)vm)
+                call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32 )}
                 mov(assembler, Reg64.Rsp, Reg64.Rbp)
                 pop(assembler, Reg64.Rbp)
                 ret(assembler)
             case .ireturn, .areturn, .dreturn:
+                when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32 )}
+                mov(assembler, Reg64.Rax, transmute(u64)stack_trace_pop)
+                mov(assembler, Reg64.Rdi, transmute(u64)vm)
+                call_reg(assembler, Reg64.Rax)
+                when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32 )}
                 stack_count -= 1
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
                 mov(assembler, Reg64.Rsp, Reg64.Rbp)
@@ -428,6 +463,13 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
                 cmp(assembler, Reg32.R10d, Reg32.Eax)
                 jlt(assembler, labels[start])
+            case .if_icmple:
+                start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                stack_count -= 2
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
+                mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
+                cmp(assembler, Reg32.R10d, Reg32.Eax)
+                jle(assembler, labels[start])
             case .if_icmpge:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
@@ -435,6 +477,13 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
                 cmp(assembler, Reg32.R10d, Reg32.Eax)
                 jge(assembler, labels[start])
+            case .if_icmpgt:
+                start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                stack_count -= 2
+                mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
+                mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
+                cmp(assembler, Reg32.R10d, Reg32.Eax)
+                jgt(assembler, labels[start])
             case .if_icmpeq, .if_acmpeq:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
@@ -442,7 +491,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov_from(assembler, Reg64.R10, Reg64.Rbp, stack_base - 8 * (stack_count + 1)) 
                 cmp(assembler, Reg64.Rax, Reg64.R10)
                 je(assembler, labels[start])
-            case .if_acmpne:
+            case .if_acmpne, .if_icmpne:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 2)) 
@@ -453,10 +502,16 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 jmp(assembler, labels[start])
             case .invokespecial:
+                mov(assembler, Reg64.Rax, transmute(u64)get_instr_offset(instruction))
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, -8)
                 jit_invoke_special(ctx, instruction)
             case .invokestatic:
+                mov(assembler, Reg64.Rax, transmute(u64)get_instr_offset(instruction))
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, -8)
                 jit_invoke_static(ctx, instruction)
             case .invokevirtual:
+                mov(assembler, Reg64.Rax, transmute(u64)get_instr_offset(instruction))
+                mov_to(assembler, Reg64.Rbp, Reg64.Rax, -8)
                 jit_invoke_virtual(ctx, instruction)
             case .irem:
                 stack_count -= 2
@@ -732,13 +787,17 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count += 1
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
             case .athrow:
+                sub(assembler, Reg64.Rsp, 16)
                 mov(assembler, reg_args[0], transmute(u64)vm)
                 mov_from(assembler, reg_args[1], Reg64.Rbp, stack_base - 8 * stack_count) 
-                mov(assembler, reg_args[2], transmute(u64)method)
+                mov(assembler, reg_args[2], Reg64.Rsp)
                 mov(assembler, Reg64.Rax, transmute(u64)throw)
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
                 call_reg(assembler, Reg64.Rax)
                 when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
+                mov_from(assembler, Reg64.Rdi, Reg64.Rbp, stack_base - 8 * stack_count)
+                mov_from(assembler, Reg64.Rbp, Reg64.Rsp)
+                jmp_reg_direct(assembler, Reg64.Rax)
             case .instanceof:
                 fals := create_label(assembler)                
                 end := create_label(assembler)
@@ -799,9 +858,29 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         }
     }
 } 
-throw :: proc "c" (vm: ^VM, exc: ^ObjectHeader, method: ^Method) {
+throw :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
     context = vm.ctx
-    fmt.printf("Exception %s at %s.%s:%s", exc.class.name, method.parent.name, method.name, method.descriptor)
+    i := len(stacktrace) - 1
+    items_to_remove := 0
+    for i >= 0 {
+        entry := stacktrace[i]
+        table := entry.method.exception_table
+        for exception in table {
+            if exception.exception == exc.class ||  is_subtype_of(exc.class, exception.exception) {
+                if items_to_remove > 0 {
+                    start := len(stacktrace) - items_to_remove
+                    remove_range(&stacktrace, start, start + items_to_remove)
+                }
+                old_rbp^ = entry.rbp
+                return transmute(int)entry.method.jitted_body + exception.offset 
+            }
+        }
+        items_to_remove += 1
+        i -= 1
+    }
+    
+    fmt.printf("Unhandled exception %s\n", exc.class.name)
+    print_stack_trace()
     panic("")
 }
 d2i :: proc "c" (d: f64) -> i32 {
@@ -816,10 +895,6 @@ dmul :: proc "c" (d1: f64, d2: f64) -> f64 {
 dadd :: proc "c" (d1: f64, d2: f64) -> f64 {
     return d1 + d2
 }
-jit_null_ref :: proc "c" () {
-    context = {}
-    panic("")
-}
 jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64) {
     using x86asm
     assert(reg != Reg64.R11)
@@ -827,10 +902,26 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64) {
     mov(assembler, Reg64.R11, 0)
     cmp(assembler, reg, Reg64.R11)
     jne(assembler, oklabel)
-    mov(assembler, Reg64.R11, transmute(u64)jit_null_ref)
-    when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) } 
-    call_reg(assembler, Reg64.R11)
-    when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) } 
+    sub(assembler, Reg64.Rsp, 16)
+    mov(assembler, parameter_registers[0], transmute(u64)vm)
+    mov(assembler, parameter_registers[1], transmute(u64)load_class(vm, "java/lang/NullPointerException").value.(^Class))
+    mov(assembler, parameter_registers[2], Reg64.Rsp)
+    mov(assembler, parameter_registers[3], transmute(u64)cast(int)-1)
+    mov(assembler, Reg64.Rax, transmute(u64)gc_alloc_object)
+    when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) }
+    call_reg(assembler, Reg64.Rax)
+    when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) }
+    mov(assembler, parameter_registers[0], transmute(u64)vm)
+    mov_from(assembler, parameter_registers[1], Reg64.Rsp, 0)
+    mov(assembler, parameter_registers[2], Reg64.Rsp)
+    add(assembler, parameter_registers[2], 8)
+    mov(assembler, Reg64.Rax, transmute(u64)throw)
+    when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) }
+    call_reg(assembler, Reg64.Rax)
+    when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) }
+    mov_from(assembler, Reg64.Rdi, Reg64.Rsp, 0)
+    mov_from(assembler, Reg64.Rbp, Reg64.Rsp, 8)
+    jmp_reg_direct(assembler, Reg64.Rax)
     set_label(assembler, oklabel)
     
 }
@@ -1161,10 +1252,14 @@ jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method
         return nil
     }
     found :^Method= nil
+    class := object.class
     for found == nil {
-        found = find_method(object.class, target.name, target.descriptor)
-        if hasFlag(found.access_flags, classparser.MethodAccessFlags.Abstract) {
+        found = find_method(class, target.name, target.descriptor)
+        if found != nil && hasFlag(found.access_flags, classparser.MethodAccessFlags.Abstract) {
             found = nil
+        }
+        if found == nil {
+            class = class.super_class
         }
     }
     if found == nil {
@@ -1185,7 +1280,46 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
     using x86asm
     push(assembler, Reg64.Rbp)
     mov(assembler, Reg64.Rbp, Reg64.Rsp)
+    sub(assembler, Reg64.Rsp, size_of(StackEntry))
     indices := jit_prepare_locals_indices(method, cb)
     jit_prepare_locals(method, indices, assembler)
+
+    mov(assembler, Reg64.Rax, transmute(u64)method)
+    mov_to(assembler, Reg64.Rbp, Reg64.Rax, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, method)))
+    mov(assembler, Reg64.Rax, 0)
+    mov_to(assembler, Reg64.Rbp, Reg64.Rax, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc)))
+    mov(assembler, Reg64.Rax, Reg64.Rbp)
+    mov_to(assembler, Reg64.Rbp, Reg64.Rax, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp)))
+    mov(assembler, Reg64.Rax, transmute(u64)stack_trace_push)
+    mov(assembler, ODIN_OS == .Windows ? Reg64.Rcx : Reg64.Rdi, Reg64.Rbp)
+    sub(assembler, ODIN_OS == .Windows ? Reg64.Rcx : Reg64.Rdi, 32)
+    when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32) }
+    call_reg(assembler, Reg64.Rax)
+    when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32) }
     return indices
+}
+stacktrace := make([dynamic]^StackEntry)
+stack_trace_push :: proc(stack_entry: ^StackEntry) {
+    append(&stacktrace, stack_entry)
+}
+stack_trace_pop :: proc "c" (vm: ^VM) -> ^StackEntry {
+    context = vm.ctx
+    res := stacktrace[len(stacktrace) - 1] 
+    ordered_remove(&stacktrace, len(stacktrace) - 1) 
+    return res
+}
+print_stack_trace :: proc() {
+    i := len(stacktrace) - 1
+    for i >= 0 {
+        method := stacktrace[i].method
+        pc := stacktrace[i].pc
+        fmt.printf("at %s.%s:%s @ %i\n", method.parent.name, method.name, method.descriptor, pc)
+        i -= 1
+    }
+}
+StackEntry :: struct {
+    method: ^Method,
+    pc: int,
+    rbp: int,
+    __: int,
 }

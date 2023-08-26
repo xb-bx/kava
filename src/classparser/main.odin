@@ -1489,6 +1489,7 @@ print_class_info :: proc(class: ClassFile) {
                 print_instruction(instr, os.stdout)
             }
         }
+        fmt.println(method.bytecode.(CodeAttribute).exception_table)
     }
 
     fmt.println(class.attributes)

@@ -39,13 +39,10 @@ target_read_cstring :: proc(target_read: GDBTargetRead, addr: rawptr, len: int) 
 
     buf, err := mem.alloc(len)
     if err != .None || buf == nil {
-        fmt.println(addr, len)
-        if true { panic("biba") }
         return nil
     }
     target_read(transmute(GDBCoreAddr)addr, transmute([^]u8)buf, cast(i32)len)
     cstr := transmute(cstring)buf
-
     return cstr
 }
 target_read_slice :: proc($T: typeid, target_read: GDBTargetRead, ptr: rawptr, len: int) -> []T {

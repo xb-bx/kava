@@ -394,3 +394,114 @@ calculate_class_size :: proc(class: ^Class) {
     class.size = size + size_of(ObjectHeader)
     class.size_without_header = size
 }
+
+
+
+print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Handle, opcode: classparser.Opcode ) {
+    using classparser
+    if index > 0 && index <= len(classfile.constant_pool) && need_to_print_const(opcode) {
+        const := classfile.constant_pool[index - 1]
+        #partial switch in const {
+            case ClassInfo:
+                name := resolve_class_name(classfile, cast(u16)index)
+                fmt.fprint(file, name)
+            case IntegerInfo:
+                i := const.(IntegerInfo).value
+                fmt.fprint(file, "int", i)
+            case LongInfo:
+                i := const.(LongInfo).value
+                fmt.fprint(file, "int", i)
+            case MethodRefInfo:
+                mref := const.(MethodRefInfo)
+                class_name := resolve_class_name(classfile, mref.class_index)
+                name_and_type := resolve_name_and_type(classfile, mref.name_and_type_index).(NameAndTypeInfo)
+                name := resolve_utf8(classfile, name_and_type.name_index)
+                type := resolve_utf8(classfile, name_and_type.descriptor_index)
+                fmt.fprintf(file, "%s.%s:%s", class_name, name, type)
+            case FieldRefInfo:
+                fref := const.(classparser.FieldRefInfo) 
+                class_name := resolve_class_name(classfile, fref.class_index)
+                name_and_type := resolve_name_and_type(classfile, fref.name_and_type_index).(NameAndTypeInfo)
+                name := resolve_utf8(classfile, name_and_type.name_index)
+                type := resolve_utf8(classfile, name_and_type.descriptor_index)
+                fmt.fprintf(file, "%s.%s:%s", class_name, name, type)
+            case StringInfo:
+                str := const.(classparser.StringInfo)
+                s := resolve_utf8(classfile, str.string_index)
+                fmt.fprint(file, s)
+            case:
+                fmt.println(const)
+                panic("unimplemented")
+
+        }
+    }
+    else {
+        fmt.fprint(file, index)
+    }
+}
+need_to_print_const :: proc(opcode: classparser.Opcode) -> bool {
+    #partial switch opcode {
+        case .aload, .iload, .lload, .fload, .dload, .astore, .istore, .lstore, .dstore, .fstore,
+            .ifge, .ifle, .ifeq, .ifgt, .iflt, .ifne, .ifnull,
+            .if_acmpeq, .if_acmpne, .if_icmpeq, .if_icmpge, .if_icmpgt, .if_icmple, .if_icmplt, .if_icmpne,
+            .bipush, .sipush, .iinc, .aaload, .aastore, .aconst_null, .goto, .goto_w,
+            ._return, .areturn, .ireturn, .lreturn, .freturn, .dreturn:
+            return false
+        case .invokespecial, .invokestatic, .new, .putfield, .putstatic, .newarray, .getfield, .getstatic, .invokevirtual, .ldc, .ldc_w, .ldc2_w, .instanceof,
+            .multianewarray, .checkcast:
+            return true 
+        case:
+            fmt.println(opcode)
+            panic("unimplemented")
+    }
+    return false
+}
+print_instruction_with_const :: proc(instr: classparser.Instruction, file: os.Handle, class_file: ^classparser.ClassFile, tab: string = "\t") -> int {
+    using classparser
+    switch in instr {
+        case SimpleInstruction: {
+            opcode := instr.(SimpleInstruction).opcode
+            fmt.fprintf(file, "%s%3i: %s ",tab, instr.(SimpleInstruction).offset, opcode) 
+            switch in instr.(SimpleInstruction).operand {
+                case OneOperand: {
+                    print_constant(class_file, instr.(SimpleInstruction).operand.(OneOperand).op, file, opcode)
+                    fmt.fprintln(file)
+                }
+                case TwoOperands: {
+                    ops := instr.(SimpleInstruction).operand.(TwoOperands)
+                    print_constant(class_file, ops.op1, file, opcode)
+                    fmt.fprint(file, " ")
+                    fmt.fprintln(file, ops.op2)
+                }
+                case nil:
+                    fmt.fprintln(file)
+            }
+            return 1
+        } 
+        case TableSwitch:
+            table := instr.(TableSwitch)
+            fmt.fprintf(file, "%s%3i: %s low: %i high: %i\n", tab, table.offset, table.opcode, table.low, table.high) 
+            lines := 2
+            for off, i in table.offsets {
+                lines += 1
+                fmt.fprintf(file, "%s\t%7i: %i\n", tab, i + table.low, off) 
+            }
+            fmt.fprintf(file, "%s\tdefault: %i\n",tab, table.default) 
+            return lines
+        case LookupSwitch:
+            table := instr.(LookupSwitch)
+            lines := 2
+            fmt.fprintf(file, "%s%3i: %s npairs = %i\n", tab, table.offset, table.opcode, len(table.pairs)) 
+            for pair in table.pairs {
+                lines += 1
+                fmt.fprintf(file, "%s\t%7i: %i\n", tab, pair.fst, pair.snd) 
+            }
+            fmt.fprintf(file, "%s\tdefault: %i\n", tab, table.default) 
+            return lines
+
+
+    }
+    return 0
+}
+
+
