@@ -57,8 +57,11 @@ target_read_slice :: proc($T: typeid, target_read: GDBTargetRead, ptr: rawptr, l
     return buf
 }
 read_info :: proc "c" (self: ^GDBReaderFuncs, cb: ^GDBSymbolCallbacks, memory: [^]u8, memory_sz: i32) -> GDBStatus {
-    context = (transmute(^runtime.Context)self.priv_data)^
+    state := (transmute(^State)self.priv_data)
+    context = state.ctx
+    symbols := &state.symbols
     symbol := (transmute(^shared.Symbol)memory)^
+    append(symbols, symbol)
     obj := cb.object_open(cb)
     if obj == nil {
         return .Fail
@@ -86,15 +89,90 @@ read_info :: proc "c" (self: ^GDBReaderFuncs, cb: ^GDBSymbolCallbacks, memory: [
     return .Success    
 }
 unwind :: proc "c" (self: ^GDBReaderFuncs, cb: ^GDBUnwindCallbacks) -> GDBStatus {
-    return .Fail
+    state := (transmute(^State)self.priv_data)^
+    context = state.ctx
+    symbols := state.symbols
+    rbp := cb->reg_get(GDBReg.Rbp)
+    defer rbp->free()
+    if rbp.defined == 0 {
+        return .Fail
+    }
+    rip := cb->reg_get(GDBReg.Rip)
+    defer rip->free()
+    if rip.defined == 0 {
+        return .Fail
+    }
+    current: GDBCoreAddr = 0
+    ripval := get_reg_value(rip)
+    for symbol in symbols {
+        if ripval >=  transmute(GDBCoreAddr)symbol.start && ripval <= transmute(GDBCoreAddr)symbol.end {
+            current = transmute(GDBCoreAddr)symbol.start
+            break
+        }
+    }
+    if current == 0 {
+        return .Fail
+    }
+    rbpvalue := get_reg_value(rbp)
+    prevrip: GDBCoreAddr = 0
+    cb.target_read(rbpvalue + 8, transmute([^]u8)&prevrip, 8) 
+    prevfn: GDBCoreAddr = 0
+    for symbol in symbols {
+        if prevrip >=  transmute(GDBCoreAddr)symbol.start && prevrip <= transmute(GDBCoreAddr)symbol.end {
+            prevfn = transmute(GDBCoreAddr)symbol.start
+            break
+        }
+    }
+    prevrbp := rbpvalue
+    cb.target_read(rbpvalue, transmute([^]u8)&prevrbp, 8)
+    set_reg(cb, GDBReg.Rbp, prevrbp)
+    set_reg(cb, GDBReg.Rip, prevrip)
+    set_reg(cb, GDBReg.Rsp, rbpvalue)
+    return .Success
 }
-destroy :: proc "c" (self: ^GDBReaderFuncs) {}
+set_reg :: proc(cb: ^GDBUnwindCallbacks, reg: GDBReg, value: GDBCoreAddr) {
+    reg_valueptr, _ := mem.alloc(size_of(GDBRegValue) + 8) 
+    reg_value := transmute(^GDBRegValue)reg_valueptr
+    reg_value.size = 8
+    reg_value.defined = 1
+    (transmute(^GDBCoreAddr)&reg_value.value)^ = value
+    reg_value.free = free_reg
+    cb->reg_set(reg, reg_value)
+} 
+free_reg :: proc "c" (reg: ^GDBRegValue) {
+    context = ctx
+    free(reg)
+}
+State :: struct {
+    symbols: [dynamic]shared.Symbol,
+    ctx: runtime.Context,
+}
+
+destroy :: proc "c" (self: ^GDBReaderFuncs) {
+    state := (transmute(^State)self.priv_data)
+    context = state.ctx
+    delete(state.symbols)
+}
 get_frame_id :: proc "c" (self: ^GDBReaderFuncs, cb: ^GDBUnwindCallbacks) -> GDBFrameId {
-//     context = {}
-//     panic("")
+    state := (transmute(^State)self.priv_data)
+    context = state.ctx
+    symbols := &state.symbols
+    rip := cb->reg_get(GDBReg.Rip)
+    defer rip->free()
+    rsp := cb->reg_get(GDBReg.Rsp)
+    defer rsp->free()
+    ripval := get_reg_value(rip)
+    for symbol in symbols {
+        if ripval >= transmute(GDBCoreAddr)symbol.start && ripval <= transmute(GDBCoreAddr)symbol.end {
+            return { code_address = transmute(GDBCoreAddr)symbol.start, stack_address = get_reg_value(rsp) }
+        }
+    }
     return {}
 }
 
+get_reg_value :: proc "c" (reg_value: ^GDBRegValue) -> GDBCoreAddr {
+    return (transmute(^GDBCoreAddr)&reg_value.value)^
+}
 
 funcs := GDBReaderFuncs {
     reader_version = GDB_READER_INTERFACE_VERSION,
@@ -107,7 +185,9 @@ ctx: runtime.Context = {}
 
 @export
 gdb_init_reader :: proc "c" () -> ^GDBReaderFuncs {
-    funcs.priv_data = transmute([^]u8)&ctx 
+    context = ctx
+    fmt.println("init")
+    funcs.priv_data = transmute([^]u8)new_clone(State { ctx = ctx, symbols = make([dynamic]shared.Symbol)} ) 
     return &funcs
 }
 
@@ -213,11 +293,11 @@ GDBReg :: enum i32 {
 
 }
 
-GDBUnwindRegGet :: distinct proc "c" (self: ^GDBUnwindCallbacks, reg: GDBReg);
+GDBUnwindRegGet :: distinct proc "c" (self: ^GDBUnwindCallbacks, reg: GDBReg) -> ^GDBRegValue;
 GDBUnwindRegSet :: distinct proc "c" (self: ^GDBUnwindCallbacks, reg: GDBReg, val: ^GDBRegValue);
 GDBUnwindCallbacks :: struct {
-    reg_set: GDBUnwindRegSet,
     reg_get: GDBUnwindRegGet,
+    reg_set: GDBUnwindRegSet,
     target_read: GDBTargetRead,
     priv_data: [^]u8,
 }
