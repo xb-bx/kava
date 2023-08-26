@@ -12,6 +12,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 
+ENABLE_GDB_DEBUGGING :: #config(ENABLE_GDB_DEBUGGING, true)
 
 when ODIN_OS == .Windows {
     parameter_registers := [?]x86asm.Reg64 { x86asm.Reg64.Rcx, x86asm.Reg64.Rdx, x86asm.Reg64.R8, x86asm.Reg64.R9 }
@@ -147,12 +148,16 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         mov(&assembler, Reg64.R10, transmute(u64)&method.parent.class_initializer_called)
         mov_to(&assembler, Reg64.R10, Reg64.R10)
     }
-    file, handle := jit_create_bytecode_file_for_method(method)
-    jit_context.handle = handle
+    when ENABLE_GDB_DEBUGGING {
+        file, handle := jit_create_bytecode_file_for_method(method)
+        jit_context.handle = handle
+    }
     for &cb in codeblocks {
         jit_compile_cb(&jit_context, &cb)
     }
-    os.close(handle)
+    when ENABLE_GDB_DEBUGGING {
+        os.close(handle)
+    }
     assemble(&assembler)
     when ODIN_DEBUG {
 //         {
@@ -187,27 +192,30 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     }
     jit_context.line_mapping[0].pc = transmute(int)body
     method.jitted_body = body
-    symbol := new(shared.Symbol)
-    ctx := context
-    symbol.ctx = ctx
-    symbol.file = strings.clone_to_cstring(file)
-    symbol.file_len = len(symbol.file)
-    symbol.function = strings.clone_to_cstring(method.name)
-    symbol.function_len = len(symbol.function)
-    symbol.line_mapping = slice.as_ptr(jit_context.line_mapping[:])
-    symbol.line_mapping_len = len(jit_context.line_mapping)
-    symbol.start = transmute(int)body
-    symbol.end = symbol.start + len(assembler.bytes)
-    entry := new(JitCodeEntry)
+    when ENABLE_GDB_DEBUGGING {
+        symbol := new(shared.Symbol)
+        ctx := context
+        symbol.ctx = ctx
+        symbol.file = strings.clone_to_cstring(file)
+        symbol.file_len = len(symbol.file)
+        symbol.function = strings.clone_to_cstring(method.name)
+        symbol.function_len = len(symbol.function)
+        symbol.line_mapping = slice.as_ptr(jit_context.line_mapping[:])
+        symbol.line_mapping_len = len(jit_context.line_mapping)
+        symbol.start = transmute(int)body
+        symbol.end = symbol.start + len(assembler.bytes)
+        entry := new(JitCodeEntry)
 
-    entry.next_entry = nil
-    entry.prev_entry = nil
-    entry.symfile = transmute([^]u8)symbol
-    entry.size = size_of(shared.Symbol)
-    __jit_debug_descriptor.relevant_entry = entry
-    __jit_debug_descriptor.first_entry = entry
-    __jit_debug_descriptor.action_flags = 1
-    __jit_debug_register_code()
+        entry.next_entry = nil
+        entry.prev_entry = nil
+        entry.symfile = transmute([^]u8)symbol
+        entry.size = size_of(shared.Symbol)
+        __jit_debug_descriptor.relevant_entry = entry
+        __jit_debug_descriptor.first_entry = entry
+        __jit_debug_descriptor.action_flags = 1
+        __jit_debug_register_code()
+
+    }
     
 }
 
@@ -372,11 +380,11 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         mov_to(assembler, Reg64.Rbp, Reg64.Rdi, stack_base - 8 * stack_count)
     }
     for instruction in cb.code {
-        append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
-        line += print_instruction_with_const(instruction, handle, method.parent.class_file, "")
+        when ENABLE_GDB_DEBUGGING {
+            append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
+            line += print_instruction_with_const(instruction, handle, method.parent.class_file, "")
+        }
         assert(stack_count >= 0)
-        lbl := create_label(assembler)
-        set_label(assembler, lbl)
         #partial switch get_instr_opcode(instruction) {
             case .iconst_m1, .iconst_0, .iconst_1, .iconst_2, .iconst_3, .iconst_4, .iconst_5,
                 .dconst_0, .dconst_1, .fconst_0, .fconst_1, .lconst_0, .lconst_1,
@@ -592,14 +600,14 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_null_check(assembler, Reg64.Rax)  
                 mov_from(assembler, Reg64.Rax, Reg64.Rax, offset)
                 mov_to(assembler, Reg64.Rbp, Reg64.Rax, stack_base - 8 * stack_count)
-            case .ifne:
+            case .ifne, .ifnonnull:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
                 mov(assembler, Reg64.R10, 0)
                 cmp(assembler, Reg64.Rax, Reg64.R10)
                 jne(assembler, labels[start])
-            case .ifeq:
+            case .ifeq, .ifnull:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
                 mov_from(assembler, Reg64.Rax, Reg64.Rbp, stack_base - 8 * (stack_count + 1))
@@ -867,12 +875,14 @@ throw :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
         table := entry.method.exception_table
         for exception in table {
             if exception.exception == exc.class ||  is_subtype_of(exc.class, exception.exception) {
-                if items_to_remove > 0 {
-                    start := len(stacktrace) - items_to_remove
-                    remove_range(&stacktrace, start, start + items_to_remove)
+                if entry.pc >= exception.start && entry.pc <= exception.end {
+                    if items_to_remove > 0 {
+                        start := len(stacktrace) - items_to_remove
+                        remove_range(&stacktrace, start, start + items_to_remove)
+                    }
+                    old_rbp^ = entry.rbp
+                    return transmute(int)entry.method.jitted_body + exception.offset 
                 }
-                old_rbp^ = entry.rbp
-                return transmute(int)entry.method.jitted_body + exception.offset 
             }
         }
         items_to_remove += 1
