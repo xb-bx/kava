@@ -194,17 +194,21 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     method.jitted_body = body
     when ENABLE_GDB_DEBUGGING {
         symbol := new(shared.Symbol)
+        defer free(symbol)
         ctx := context
         symbol.ctx = ctx
         symbol.file = strings.clone_to_cstring(file)
+        defer delete(symbol.file)
         symbol.file_len = len(symbol.file)
         symbol.function = strings.clone_to_cstring(method.name)
+        defer delete(symbol.function)
         symbol.function_len = len(symbol.function)
         symbol.line_mapping = slice.as_ptr(jit_context.line_mapping[:])
         symbol.line_mapping_len = len(jit_context.line_mapping)
         symbol.start = transmute(int)body
         symbol.end = symbol.start + len(assembler.bytes)
         entry := new(JitCodeEntry)
+        defer free (entry)
 
         entry.next_entry = nil
         entry.prev_entry = nil
