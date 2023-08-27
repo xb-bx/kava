@@ -148,6 +148,9 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         mov(&assembler, Reg64.R10, transmute(u64)&method.parent.class_initializer_called)
         mov_to(&assembler, Reg64.R10, Reg64.R10)
     }
+    if method.name == "main" {
+//         int3(&assembler)
+    }
     when ENABLE_GDB_DEBUGGING {
         file, handle := jit_create_bytecode_file_for_method(method)
         jit_context.handle = handle
@@ -187,12 +190,12 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     for b, i in assembler.bytes {
         body[i] = b
     }
-    for i in 0..<len(jit_context.line_mapping) {
-        jit_context.line_mapping[i].pc += transmute(int)body
-    }
-    jit_context.line_mapping[0].pc = transmute(int)body
     method.jitted_body = body
     when ENABLE_GDB_DEBUGGING {
+        for i in 0..<len(jit_context.line_mapping) {
+            jit_context.line_mapping[i].pc += transmute(int)body
+        }
+        jit_context.line_mapping[0].pc = transmute(int)body
         symbol := new(shared.Symbol)
         defer free(symbol)
         ctx := context
@@ -433,7 +436,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case ._return:
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32 )}
                 mov(assembler, Reg64.Rax, transmute(u64)stack_trace_pop)
-                mov(assembler, Reg64.Rdi, transmute(u64)vm)
+                mov(assembler, parameter_registers[0], transmute(u64)vm)
                 call_reg(assembler, Reg64.Rax)
                 when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32 )}
                 mov(assembler, Reg64.Rsp, Reg64.Rbp)
@@ -442,7 +445,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .ireturn, .areturn, .dreturn:
                 when ODIN_OS == .Windows { sub(assembler, Reg64.Rsp, 32 )}
                 mov(assembler, Reg64.Rax, transmute(u64)stack_trace_pop)
-                mov(assembler, Reg64.Rdi, transmute(u64)vm)
+                mov(assembler, parameter_registers[0], transmute(u64)vm)
                 call_reg(assembler, Reg64.Rax)
                 when ODIN_OS == .Windows { add(assembler, Reg64.Rsp, 32 )}
                 stack_count -= 1
@@ -892,8 +895,17 @@ throw :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
         items_to_remove += 1
         i -= 1
     }
-    
-    fmt.printf("Unhandled exception %s\n", exc.class.name)
+        
+    toString := transmute(proc "c" (^ObjectHeader) -> ^ObjectHeader)(jit_resolve_virtual(vm, exc, find_method(vm.classes["java/lang/Object"], "toString", "()Ljava/lang/String;"))^)    
+    assert(toString != nil)
+    str := toString(exc)
+    msg := exc.class.name
+    if str != nil {
+        arr := transmute(^ArrayHeader)get_object_field(str, "value")
+        chars := array_to_slice(u16, arr)
+        msg = strings.clone_from_ptr(transmute(^u8)slice.as_ptr(chars), len(chars) * 2)
+    }
+    fmt.printf("Unhandled exception %s\n", msg)
     print_stack_trace()
     panic("")
 }
@@ -1243,7 +1255,7 @@ jit_invoke_virtual :: proc(ctx: ^JittingContext, instruction: classparser.Instru
     when ODIN_OS == .Linux {
         jit_invoke_method_systemv(ctx, instruction)
     } else {
-        jit_invoke_method_windows(ctx, instruction, false)
+        jit_invoke_method_windows(ctx, instruction)
     }
 }
 count_args :: proc(method: ^Method) -> i32 {

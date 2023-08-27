@@ -31,7 +31,22 @@ getAvailableBytes :: proc "c" (fd: os.Handle) -> i32 {
             panic("oopsie")
         }
         return available
+    } else {
+        throw_NotImplementedException("Cannot get available bytes on windows rn")
+        return 0
     }
+}
+throw_NotImplementedException :: proc(msg: string) {
+    nimpl: ^ObjectHeader = nil
+    msgstring: ^ObjectHeader = nil
+    gc_alloc_object(vm, vm.classes["java/lang/NotImplementedException"], &nimpl) 
+    gc_alloc_string(vm, msg, &msgstring)
+    set_object_field(nimpl, "message", transmute(int)msgstring)
+    rbp := 0
+    target := throw(vm, nimpl, &rbp)
+    asm(^ObjectHeader) #side_effects #intel { "mov rdi, rax", ":rax" }(nimpl)
+    asm(int) #side_effects #intel { "mov rbp, rax", ":rax" }(rbp)
+    asm(int) #side_effects #intel { "jmp rax", ":rax" }(target)
 }
 // read (J)I
 read_byte :: proc "c" (fd: os.Handle) -> i32 {

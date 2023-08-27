@@ -914,6 +914,26 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if !stack_push(stack, vm.classes["char"]) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
+            case .ifnull, .ifnonnull:
+                typ := stack_pop_class(stack)
+                if !is_reference_type(vm, typ) {
+                    return verification_error("Invalid bytecode. Expected reference type on stack", this_method, instr)
+                }
+                next_block := find_codeblock_by_start(cblocks, instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op)
+                if next_block == nil {
+                    return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
+                }
+                if next_block.stack_at_start == nil {
+                    next_block.stack_at_start = new_clone(copy_stack(stack^))
+                    next_block.locals = slice.clone(locals) 
+                    res := calculate_stack(vm, next_block, cblocks, this_method)
+                    if res != nil {
+                        return res
+                    }
+                }
+                else if !stack_eq(next_block.stack_at_start, stack) || !locals_equal(locals, next_block.locals)  {
+                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
+                }
             case .ifeq, .ifge, .ifgt, .ifle, .iflt, .ifne:
                 typ := stack_pop_class(stack)
                 if !type_is_integer(typ) {

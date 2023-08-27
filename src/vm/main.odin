@@ -85,6 +85,7 @@ main :: proc() {
     time.stopwatch_stop(&stopwatch)
     dur := time.stopwatch_duration(stopwatch)
     fmt.println("JIT took", dur)
+
     for name, class in vm.classes {
         initializer := find_method(class, "<clinit>", "()V")
         if initializer != nil && !class.class_initializer_called {
@@ -94,8 +95,6 @@ main :: proc() {
             class.class_initializer_called = true;
         }
     }
-    arr := vm.classes["[[[C"]
-    fmt.println(arr)
     mainMethod := find_method(app.value.(^Class), "main", "([Ljava/lang/String;)V")
     if mainMethod == nil {
         error("Could not find entry point")
