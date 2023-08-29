@@ -429,6 +429,8 @@ print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Ha
                 str := const.(classparser.StringInfo)
                 s := resolve_utf8(classfile, str.string_index)
                 fmt.fprint(file, s)
+            case UTF8Info:
+                fmt.fprintf(file, "srcfile")
             case:
                 fmt.println(const)
                 panic("unimplemented")

@@ -108,8 +108,13 @@ main :: proc() {
         args_slice[i] = str 
     
     }
+    
+    stopwatch = time.Stopwatch {}
+    time.stopwatch_start(&stopwatch)
     ((transmute(proc "c" (args: ^ArrayHeader))mainMethod.jitted_body))(args_array)
-
+    time.stopwatch_stop(&stopwatch)
+    dur = time.stopwatch_duration(stopwatch)
+    fmt.println("Execution took", dur)
 
 //     for k,v in vm.classes {
 //         fmt.println(k, "=", v.name, v.class_type)

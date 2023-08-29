@@ -630,48 +630,33 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
                 mov(assembler, r9w, at(rbp, stack_base - 8 * (stack_count + 3)))
                 mov(assembler, at(rax, r10, size_of(ArrayHeader), 2), r9w)
-//                 mov(assembler, r11, 2)
-//                 imul(assembler, r10, r11)
-//                 addsx(assembler, rax, i32(size_of(ArrayHeader)))
-//                 add(assembler, rax, r10)
-//                 mov(assembler, at(rax, cast(i32)0), r9w)
             case .iastore:
                 stack_count -= 3
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
                 jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                mov(assembler, r9, at(rbp, stack_base - 8 * (stack_count + 3)))
-                mov(assembler, r11, 4)
-                imul(assembler, r10, r11)
-                addsx(assembler, rax, i32(size_of(ArrayHeader)))
-                add(assembler, rax, r10)
-                mov(assembler, at(rax, cast(i32)0), r9d)
+                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+                mov(assembler, r9d, at(rbp, stack_base - 8 * (stack_count + 3)))
+                mov(assembler, at(rax, r10, size_of(ArrayHeader), 4), r9d)
             case .iaload:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
                 jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                mov(assembler, r11, 4)
-                imul(assembler, r10, r11)
-                addsx(assembler, rax, i32(size_of(ArrayHeader)))
-                add(assembler, rax, r10)
-                mov(assembler, r10d, 0)
-                mov(assembler, r10d, at(rax))
+                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+                mov(assembler, r10d, at(rax, r10, i32(size_of(ArrayHeader)), int(4)))
                 stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10)
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10d)
+
             case .caload:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
                 jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                mov(assembler, r11, 2)
-                imul(assembler, r10, r11)
-                addsx(assembler, rax, i32(size_of(ArrayHeader)))
-                add(assembler, rax, r10)
-                mov(assembler, r10d, 0)
-                mov(assembler, r10w, at(rax))
+                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+                mov(assembler, r10w, at(rax, r10, i32(size_of(ArrayHeader)), 2))
                 stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10)
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10d)
             case .d2i:
                 mov(assembler, reg_args[0], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)d2i)

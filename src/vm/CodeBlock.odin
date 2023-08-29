@@ -469,6 +469,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
                 }
                 stack_push(stack, locals[index])
+            case .lstore:
+                t := stack_pop_class(stack)
+                if t == nil || t != vm.classes["long"] {
+                    return verification_error("Invalid bytecode. Expected integer on stack before lstore operation", this_method, instr)
+                }
+                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+                if locals[index] == nil {
+                    locals[index] = t
+                }
             case .istore:
                 t := stack_pop_class(stack)
                 if t == nil || !type_is_integer(t) {

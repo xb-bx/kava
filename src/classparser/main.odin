@@ -1105,8 +1105,20 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 }
                 instr.offset = i
                 append(&instructions,instr) 
+            case .sipush:
+                if i + 2 >= len(bytes) {
+                    result = shared.Err([]Instruction, "Invalid bytecode")
+                    return result
+                }
+                else if next_is_wide {
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
+                    return result
+                }
+                value := transmute(i16)(cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8)) 
+                append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = single_op(int(value))})
+                i += 2
             case .invokespecial, .putfield, .putstatic, .ldc_w, .ldc2_w, .getstatic, .getfield, .invokevirtual, .invokestatic,
-                .sipush, .anewarray,
+                .anewarray,
                 .checkcast, .instanceof, .new:
                 if i + 2 >= len(bytes) {
                     result = shared.Err([]Instruction, "Invalid bytecode")
