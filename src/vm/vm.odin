@@ -445,7 +445,7 @@ need_to_print_const :: proc(opcode: classparser.Opcode) -> bool {
             .ifge, .ifle, .ifeq, .ifgt, .iflt, .ifne, .ifnull,
             .if_acmpeq, .if_acmpne, .if_icmpeq, .if_icmpge, .if_icmpgt, .if_icmple, .if_icmplt, .if_icmpne,
             .bipush, .sipush, .iinc, .aaload, .aastore, .aconst_null, .goto, .goto_w,
-            ._return, .areturn, .ireturn, .lreturn, .freturn, .dreturn:
+            ._return, .areturn, .ireturn, .lreturn, .freturn, .dreturn, .ifnonnull:
             return false
         case .invokespecial, .invokestatic, .new, .putfield, .putstatic, .newarray, .getfield, .getstatic, .invokevirtual, .ldc, .ldc_w, .ldc2_w, .instanceof,
             .multianewarray, .checkcast:

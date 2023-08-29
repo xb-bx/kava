@@ -68,12 +68,13 @@ gc_alloc_string :: proc "c" (vm: ^VM, str: string, output: ^^ObjectHeader) {
     output^ = strobj
 }
 
-get_object_field :: proc(object: ^ObjectHeader, field_name: string) -> int {
+get_object_field :: proc "c" (object: ^ObjectHeader, field_name: string) -> int {
     for field in object.class.instance_fields {
         if field.name == field_name {
             return (transmute(^int)(transmute(int)object + cast(int)field.offset))^ 
         }
     }
+    context = {}
     panic("Unknown field")
 }
 array_to_slice :: proc($T: typeid, array: ^ArrayHeader) -> []T {

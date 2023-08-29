@@ -12,4 +12,5 @@ public class Kava {
     public static native int getAvailableBytes(long handle);
     public static native int read(long handle);
     public static native int read(long handle, byte[] bytes, int off, int len);
+    public static native String objectToString(Object obj);
 }

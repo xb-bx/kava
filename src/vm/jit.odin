@@ -470,78 +470,69 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .if_icmplt:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                cmp(assembler, r10d, eax)
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 jlt(assembler, labels[start])
             case .if_icmple:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                cmp(assembler, r10d, eax)
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 jle(assembler, labels[start])
             case .if_icmpge:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                cmp(assembler, r10d, eax)
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 jge(assembler, labels[start])
             case .if_icmpgt:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                cmp(assembler, r10d, eax)
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 jgt(assembler, labels[start])
             case .if_icmpeq, .if_acmpeq:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                cmp(assembler, rax, r10)
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 je(assembler, labels[start])
             case .if_acmpne, .if_icmpne:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                cmp(assembler, rax, r10)
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 jne(assembler, labels[start])
             case .goto, .goto_w:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 jmp(assembler, labels[start])
             case .invokespecial:
-                mov(assembler, rax, transmute(int)get_instr_offset(instruction))
-                mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), rax)
+                movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 jit_invoke_special(ctx, instruction)
             case .invokestatic:
-                mov(assembler, rax, transmute(int)get_instr_offset(instruction))
-                mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), rax)
+                movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 jit_invoke_static(ctx, instruction)
             case .invokevirtual:
-                mov(assembler, rax, transmute(int)get_instr_offset(instruction))
-                mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), rax)
+                movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 jit_invoke_virtual(ctx, instruction)
             case .irem:
                 stack_count -= 2
-                mov(assembler, rdx, 0)
+                mov(assembler, edx, 0)
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                idiv(assembler, r10d)
+                idiv(assembler, r10)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rdx)
             case .idiv:
                 stack_count -= 2
-                mov(assembler, rdx, 0)
+                mov(assembler, edx, 0)
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 idiv(assembler, r10d)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .imul:
-                mov(assembler, rdx, 0)
+                mov(assembler, edx, 0)
                 stack_count -= 2
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 1))) 
@@ -551,24 +542,18 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .iadd:
                 stack_count -= 2
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                add(assembler, eax, r10d)
+                add(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1)))
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .isub:
                 stack_count -= 2
-                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                sub(assembler, r10d, eax)
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                sub(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10)
-            case .ineg:
-                mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                neg(assembler, rax)
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
-
+            case .ineg:
+                neg_m32(assembler, at(rbp, stack_base - 8 * stack_count))
             case .putstatic:
-                
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 field := get_fieldrefconst_field(vm, method.parent.class_file, index).value.(^Field)
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
@@ -592,7 +577,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, r10)  
+                jit_null_check(assembler, r10, get_instr_offset(instruction))  
                 mov(assembler, at(r10, field.offset), rax)
             case .getfield:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
@@ -600,72 +585,60 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 offset := field.offset
                 assert(offset != 0)
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax)  
+                jit_null_check(assembler, rax, get_instr_offset(instruction))  
                 mov(assembler, rax, at(rax, offset))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .ifne, .ifnonnull:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                mov(assembler, r10, 0)
-                cmp(assembler, rax, r10)
+                cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 jne(assembler, labels[start])
             case .ifeq, .ifnull:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                mov(assembler, r10, 0)
-                cmp(assembler, rax, r10)
+                cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 je(assembler, labels[start])
             case .ifle:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                mov(assembler, r10, 0)
-                cmp(assembler, rax, r10)
+                cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 jle(assembler, labels[start])
             case .ifgt:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                mov(assembler, r10, 0)
-                cmp(assembler, rax, r10)
+                cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 jgt(assembler, labels[start])
             case .ifge:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                mov(assembler, r10, 0)
-                cmp(assembler, rax, r10)
+                cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 jge(assembler, labels[start])
             case .aaload:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                mov(assembler, r11, 8)
-                imul(assembler, r10, r11)
-                addsx(assembler, rax, i32(size_of(ArrayHeader)))
-                add(assembler, rax, r10)
-                mov(assembler, r10d, 0)
-                mov(assembler, r10, at(rax))
+                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+                mov(assembler, r10, at(rax, r10, i32(size_of(ArrayHeader)), 8))
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), r10)
             case .castore:
                 stack_count -= 3
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                mov(assembler, r9, at(rbp, stack_base - 8 * (stack_count + 3)))
-                mov(assembler, r11, 2)
-                imul(assembler, r10, r11)
-                addsx(assembler, rax, i32(size_of(ArrayHeader)))
-                add(assembler, rax, r10)
-                mov(assembler, at(rax, cast(i32)0), r9w)
+                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+                mov(assembler, r9w, at(rbp, stack_base - 8 * (stack_count + 3)))
+                mov(assembler, at(rax, r10, size_of(ArrayHeader), 2), r9w)
+//                 mov(assembler, r11, 2)
+//                 imul(assembler, r10, r11)
+//                 addsx(assembler, rax, i32(size_of(ArrayHeader)))
+//                 add(assembler, rax, r10)
+//                 mov(assembler, at(rax, cast(i32)0), r9w)
             case .iastore:
                 stack_count -= 3
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
                 mov(assembler, r9, at(rbp, stack_base - 8 * (stack_count + 3)))
                 mov(assembler, r11, 4)
@@ -676,7 +649,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .iaload:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
                 mov(assembler, r11, 4)
                 imul(assembler, r10, r11)
@@ -689,7 +662,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .caload:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
                 mov(assembler, r11, 2)
                 imul(assembler, r10, r11)
@@ -813,7 +786,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 fals := create_label(assembler)                
                 end := create_label(assembler)
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, r10, transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
                 mov(assembler, rax, at(rax))
@@ -829,7 +802,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 fals := create_label(assembler)                
                 end := create_label(assembler)
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, r10, transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
                 mov(assembler, r11, at(rax))
@@ -842,7 +815,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .arraylength:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax)
+                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, rax, at(rax, cast(i32)offset_of(ArrayHeader, length)))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .tableswitch:
@@ -917,13 +890,15 @@ dmul :: proc "c" (d1: f64, d2: f64) -> f64 {
 dadd :: proc "c" (d1: f64, d2: f64) -> f64 {
     return d1 + d2
 }
-jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64) {
+jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int) {
     using x86asm
     assert(reg != r11)
     oklabel := create_label(assembler)
-    mov(assembler, r11, 0)
-    cmp(assembler, reg, r11)
+    cmpsx(assembler, reg, i32(0))
     jne(assembler, oklabel)
+
+    movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(pc))
+
     subsx(assembler, rsp, i32(16))
     mov(assembler, parameter_registers[0], transmute(int)vm)
     mov(assembler, parameter_registers[1], transmute(int)load_class(vm, "java/lang/NullPointerException").value.(^Class))
@@ -946,6 +921,43 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64) {
     jmp(assembler, rax)
     set_label(assembler, oklabel)
     
+}
+jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, index: x86asm.Reg64, pc: int) {
+    using x86asm
+    notoutofbounds := create_label(assembler)
+    outofbounds := create_label(assembler)
+
+    cmp(assembler, at(array, i32(offset_of(ArrayHeader, length))), index)
+    jle(assembler, outofbounds)
+    cmpsx(assembler, index, i32(0))
+    jge(assembler, notoutofbounds)
+    set_label(assembler, outofbounds)
+
+    movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(pc))
+
+
+    subsx(assembler, rsp, i32(16))
+
+    mov(assembler, parameter_registers[0], transmute(int)vm)
+    mov(assembler, parameter_registers[1], transmute(int)load_class(vm, "java/lang/ArrayIndexOutOfBoundsException").value.(^Class))
+    mov(assembler, parameter_registers[2], rsp)
+    mov(assembler, parameter_registers[3], transmute(int)cast(int)-1)
+    mov(assembler, rax, transmute(int)gc_alloc_object)
+    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
+    call(assembler, rax)
+    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
+    mov(assembler, parameter_registers[0], transmute(int)vm)
+    mov(assembler, parameter_registers[1], at(rsp))
+    mov(assembler, parameter_registers[2], rsp)
+    addsx(assembler, parameter_registers[2], i32(8))
+    mov(assembler, rax, transmute(int)throw)
+    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
+    call(assembler, rax)
+    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
+    mov(assembler, rdi, at(rsp))
+    mov(assembler, rbp, at(rsp, 8))
+    jmp(assembler, rax)
+    set_label(assembler, notoutofbounds)
 }
 is_long_or_double :: proc(class: ^Class) -> bool {
     return class.name == "long" || class.name == "double"
@@ -1270,7 +1282,7 @@ count_args :: proc(method: ^Method) -> i32 {
 jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method) -> ^[^]u8 {
     context = vm.ctx
     if object == nil {
-        fmt.println("WARNING: null ref at virtual resolve")
+        throw_NullPointerException()
         return nil
     }
     found :^Method= nil
@@ -1308,10 +1320,8 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
 
     mov(assembler, rax, transmute(int)method)
     mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, method))), rax)
-    mov(assembler, rax, 0)
-    mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), rax)
-    mov(assembler, rax, rbp)
-    mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rax)
+    movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(0))
+    mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rbp)
     mov(assembler, rax, transmute(int)stack_trace_push)
     mov(assembler, ODIN_OS == .Windows ? rcx : rdi, rbp)
     subsx(assembler, ODIN_OS == .Windows ? rcx : rdi, i32(32))

@@ -3,7 +3,7 @@ package java.lang;
 public class Object {
 
     public String toString() {
-        return "java/lang/Object";
+        return kava.Kava.objectToString(this);
     }
     public int hashCode() {
         return 0;

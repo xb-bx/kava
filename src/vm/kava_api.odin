@@ -36,6 +36,16 @@ getAvailableBytes :: proc "c" (fd: os.Handle) -> i32 {
         return 0
     }
 }
+
+throw_NullPointerException :: proc() {
+    nimpl: ^ObjectHeader = nil
+    gc_alloc_object(vm, vm.classes["java/lang/NullPointerException"], &nimpl) 
+    rbp := 0
+    target := throw(vm, nimpl, &rbp)
+    asm(^ObjectHeader) #side_effects #intel { "mov rdi, rax", ":rax" }(nimpl)
+    asm(int) #side_effects #intel { "mov rbp, rax", ":rax" }(rbp)
+    asm(int) #side_effects #intel { "jmp rax", ":rax" }(target)
+}
 throw_NotImplementedException :: proc(msg: string) {
     nimpl: ^ObjectHeader = nil
     msgstring: ^ObjectHeader = nil
@@ -83,3 +93,11 @@ flush :: proc "c" (fd: os.Handle) {
         os.flush(fd)
     }
 }
+
+// objectToString (Ljava/lang/Object;)Ljava/lang/String;
+objectToString :: proc "c" (obj: ^ObjectHeader) -> ^ObjectHeader {
+    str: ^ObjectHeader = nil
+    gc_alloc_string(vm, obj.class.name, &str)
+    return str
+}
+
