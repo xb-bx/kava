@@ -117,8 +117,8 @@ replace_body :: proc(method: ^Method, procptr: rawptr) {
     assembler := Assembler {}
     init_asm(&assembler)
     defer delete_asm(&assembler)
-    mov(&assembler, Reg64.Rax, transmute(u64)procptr)
-    jmp_reg_direct(&assembler, Reg64.Rax)
+    mov(&assembler, Reg64.Rax, transmute(int)procptr)
+    jmp(&assembler, Reg64.Rax)
     method.jitted_body = alloc_executable(len(assembler.bytes))
     for b, i in assembler.bytes {
         method.jitted_body[i] = b
