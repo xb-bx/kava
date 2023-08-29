@@ -1027,6 +1027,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
+            case .i2s:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(t) {
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["short"])
             case .i2c:
                 t := stack_pop_class(stack)
                 if t == nil {

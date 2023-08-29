@@ -539,18 +539,32 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 imul(assembler, rax, r10)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+            case .ior:
+                stack_count -= 2
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                or(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
+                stack_count += 1
+            case .ixor:
+                stack_count -= 2
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                xor(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
+                stack_count += 1
+            case .iand:
+                stack_count -= 2
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                and(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
+                stack_count += 1
+                
             case .iadd:
                 stack_count -= 2
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                add(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1)))
+                add(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
                 stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .isub:
                 stack_count -= 2
-                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                sub(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                sub(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
                 stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .ineg:
                 neg_m32(assembler, at(rbp, stack_base - 8 * stack_count))
             case .putstatic:
@@ -669,6 +683,10 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, eax, eax)
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .i2c:
+                and(assembler, at(rbp, stack_base - 8 * stack_count), 0xffff)
+            case .i2s:
+                movsx_mem16(assembler, eax, at(rbp, stack_base - 8 * stack_count))
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
             case .i2d:
                 mov(assembler, reg_args[0], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)i2d)
