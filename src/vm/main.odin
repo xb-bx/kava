@@ -1,5 +1,6 @@
 package vm
 import "kava:classparser"
+import "x86asm:x86asm"
 import "kava:shared"
 import "core:os"
 import "core:fmt"
@@ -24,6 +25,7 @@ print_usage :: proc() {
     fmt.println("usage: kava [-options] class [args...]")
 }
 main :: proc() {
+    x86asm.set_formatter() 
     args := os.args[1:]
     if len(args) == 0 {
         print_usage()

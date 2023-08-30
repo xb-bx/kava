@@ -68,7 +68,7 @@ constants := map[classparser.Opcode]int {
     classparser.Opcode.fconst_0 = transmute(int)cast(u64)transmute(u32)cast(f32)0,
     classparser.Opcode.fconst_1 = transmute(int)cast(u64)transmute(u32)cast(f32)1,
     classparser.Opcode.lconst_0 = 0,
-    classparser.Opcode.lconst_1 = 0,
+    classparser.Opcode.lconst_1 = 1,
     classparser.Opcode.aconst_null = 0,
 }
 write_replace_descriptor :: proc(builder: ^strings.Builder, str: string) {
@@ -364,6 +364,45 @@ jit_prepare_locals_systemv :: proc(method: ^Method, locals: []i32, assembler: ^x
         off += 8
     }
 }
+jit_array_load :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction, elem_size: int) {
+    using x86asm
+    stack_count -= 2
+    mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
+    jit_null_check(assembler, rax, get_instr_offset(instruction))
+    mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
+    jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+    switch elem_size {
+        case 1:
+            mov(assembler, r10b, at(rax, r10, i32(size_of(ArrayHeader)), 1))
+        case 2:
+            mov(assembler, r10w, at(rax, r10, i32(size_of(ArrayHeader)), 2))
+        case 4:
+            mov(assembler, r10d, at(rax, r10, i32(size_of(ArrayHeader)), 4))
+        case 8:
+            mov(assembler, r10, at(rax, r10, i32(size_of(ArrayHeader)), 8))
+    }
+    stack_count += 1
+    mov(assembler, at(rbp, stack_base - 8 * stack_count), r10)
+}
+jit_array_store :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction, elem_size: int) {
+    using x86asm
+    stack_count -= 3
+    mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
+    jit_null_check(assembler, rax, get_instr_offset(instruction))
+    mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
+    jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+    mov(assembler, r9, at(rbp, stack_base - 8 * (stack_count + 3)))
+    switch elem_size {
+        case 1:
+            mov(assembler, at(rax, r10, size_of(ArrayHeader), 1), r9b)
+        case 2:
+            mov(assembler, at(rax, r10, size_of(ArrayHeader), 2), r9w)
+        case 4:
+            mov(assembler, at(rax, r10, size_of(ArrayHeader), 4), r9d)
+        case 8:
+            mov(assembler, at(rax, r10, size_of(ArrayHeader), 8), r9)
+    }
+}
 jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     using classparser
     using x86asm 
@@ -389,6 +428,11 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         }
         assert(stack_count >= 0)
         #partial switch get_instr_opcode(instruction) {
+            case .nop:
+            case .pop:
+                stack_count -= 1
+            case .pop2:
+                stack_count -= 2
             case .iconst_m1, .iconst_0, .iconst_1, .iconst_2, .iconst_3, .iconst_4, .iconst_5,
                 .dconst_0, .dconst_1, .fconst_0, .fconst_1, .lconst_0, .lconst_1,
                 .aconst_null:
@@ -519,6 +563,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, edx, 0)
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 idiv(assembler, r10)
                 stack_count += 1
@@ -527,6 +572,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, edx, 0)
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 idiv(assembler, r10d)
                 stack_count += 1
@@ -565,6 +611,49 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 sub(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
                 stack_count += 1
+            case .ladd:
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                add(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax)
+                stack_count += 1
+            case .lsub:
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                sub(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax)
+                stack_count += 1
+
+            case .lmul:
+                mov(assembler, edx, 0)
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                imul(assembler, r10)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+            case .lor:
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                or(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax)
+                stack_count += 1
+            case .lxor:
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                xor(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax)
+                stack_count += 1
+            case .land:
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                and(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax)
+                stack_count += 1
+            case .ldiv:
+                stack_count -= 2
+                mov(assembler, edx, 0)
+                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                idiv(assembler, r10)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .ineg:
                 neg_m32(assembler, at(rbp, stack_base - 8 * stack_count))
             case .putstatic:
@@ -627,50 +716,23 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 1
                 cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 jge(assembler, labels[start])
+            case .aastore:
+                jit_array_store(ctx, instruction, 8)
             case .aaload:
-                stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
-                mov(assembler, r10, at(rax, r10, i32(size_of(ArrayHeader)), 8))
-                stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10)
-            case .castore:
-                stack_count -= 3
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
-                mov(assembler, r9w, at(rbp, stack_base - 8 * (stack_count + 3)))
-                mov(assembler, at(rax, r10, size_of(ArrayHeader), 2), r9w)
-            case .iastore:
-                stack_count -= 3
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
-                mov(assembler, r9d, at(rbp, stack_base - 8 * (stack_count + 3)))
-                mov(assembler, at(rax, r10, size_of(ArrayHeader), 4), r9d)
+                jit_array_load(ctx, instruction, 8)
+            case .caload, .saload:
+                jit_array_load(ctx, instruction, 2)
+            case .castore, .sastore:
+                jit_array_store(ctx, instruction, 2)
+            case .baload:
+                jit_array_load(ctx, instruction, 1)
+            case .bastore:
+                jit_array_store(ctx, instruction, 1)
             case .iaload:
-                stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
-                mov(assembler, r10d, at(rax, r10, i32(size_of(ArrayHeader)), int(4)))
-                stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10d)
+                jit_array_load(ctx, instruction, 4)
+            case .iastore:
+                jit_array_store(ctx, instruction, 4)
 
-            case .caload:
-                stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
-                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-                jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
-                mov(assembler, r10w, at(rax, r10, i32(size_of(ArrayHeader)), 2))
-                stack_count += 1
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), r10d)
             case .d2i:
                 mov(assembler, reg_args[0], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)d2i)
@@ -678,6 +740,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 call(assembler, rax)
                 when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+            case .l2i:
             case .i2l:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, eax, eax)
@@ -715,11 +778,29 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .iinc:
+                
                 ops := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands)
-                mov(assembler, rax, at(rbp, locals[ops.op1]))
                 imm :i32= cast(i32)ops.op2
-                addsx(assembler, rax, imm)
-                mov(assembler, at(rbp, locals[ops.op1]), rax)
+                if imm == 1 {
+                    inc_m32(assembler, at(rbp, locals[ops.op1]))
+                }
+                else {
+                    mov(assembler, rax, at(rbp, locals[ops.op1]))
+
+                    addsx(assembler, rax, imm)
+                    mov(assembler, at(rbp, locals[ops.op1]), rax)
+                }
+            case .anewarray:
+                index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                mov(assembler, parameter_registers[0], transmute(int)vm)
+                typ := make_array_type(vm, get_class(vm, method.parent.class_file, index).value.(^Class))
+                mov(assembler, parameter_registers[1], transmute(int)typ)
+                mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
+                lea(assembler, parameter_registers[3], at(rbp, stack_base - 8 * stack_count))
+                mov(assembler, rax, transmute(int)gc_alloc_array)
+                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
+                call(assembler, rax)
+                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
             case .newarray:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, reg_args[0], transmute(int)vm)
@@ -893,9 +974,53 @@ dmul :: proc "c" (d1: f64, d2: f64) -> f64 {
 dadd :: proc "c" (d1: f64, d2: f64) -> f64 {
     return d1 + d2
 }
+jit_div_by_zero_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int) {
+    using x86asm
+    oklabel := create_label(assembler)
+    cmpsx(assembler, reg, i32(0))
+    jne(assembler, oklabel)
+
+    movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(pc))
+    ariphexc := load_class(vm, "java/lang/AriphmeticException").value.(^Class)
+    ctor := find_method(ariphexc, "<init>", "(Ljava/lang/String;)V")
+    msg: ^ObjectHeader = nil
+    gc_alloc_string(vm, "/ by zero", &msg)
+
+    subsx(assembler, rsp, i32(16))
+    mov(assembler, parameter_registers[0], transmute(int)vm)
+    mov(assembler, parameter_registers[1], transmute(int)ariphexc)
+    mov(assembler, parameter_registers[2], rsp)
+    mov(assembler, parameter_registers[3], transmute(int)cast(int)-1)
+    mov(assembler, rax, transmute(int)gc_alloc_object)
+    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
+    call(assembler, rax)
+    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
+
+
+
+    mov(assembler, parameter_registers[0], at(rsp))
+    mov(assembler, parameter_registers[1], transmute(int)msg)
+    mov(assembler, rax, transmute(int)&ctor.jitted_body)
+    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
+    call(assembler, at(rax))
+    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
+
+    mov(assembler, parameter_registers[0], transmute(int)vm)
+    mov(assembler, parameter_registers[1], at(rsp))
+    mov(assembler, parameter_registers[2], rsp)
+    addsx(assembler, parameter_registers[2], i32(8))
+    mov(assembler, rax, transmute(int)throw)
+    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
+    call(assembler, rax)
+    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
+    mov(assembler, rdi, at(rsp))
+    mov(assembler, rbp, at(rsp, 8))
+    jmp(assembler, rax)
+    set_label(assembler, oklabel)
+    
+}
 jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int) {
     using x86asm
-    assert(reg != r11)
     oklabel := create_label(assembler)
     cmpsx(assembler, reg, i32(0))
     jne(assembler, oklabel)
