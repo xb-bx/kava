@@ -56,10 +56,14 @@ main :: proc() {
         print_usage()
         return
     }
+    gc := new(GC)
+    gc_init(gc)
     vm := VM {
         classpaths = classpaths,
         classes = make(map[string]^Class),
         ctx = context,
+        gc = gc,
+    
     }
     for prim in PrimitiveType {
         make_primitive(&vm, prim, primitive_names[prim], primitive_sizes[prim])

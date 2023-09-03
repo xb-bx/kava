@@ -100,4 +100,8 @@ objectToString :: proc "c" (obj: ^ObjectHeader) -> ^ObjectHeader {
     gc_alloc_string(vm, obj.class.name, &str)
     return str
 }
+// objectHashCode (Ljava/lang/Object;)I
+objectHashCode :: proc "c" (obj: ^ObjectHeader) -> i32 {
+    return i32(transmute(uintptr)(obj))
+}
 

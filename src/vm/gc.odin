@@ -3,6 +3,11 @@ import "core:mem"
 import "core:unicode/utf16"
 import "core:slice"
 import "core:fmt"
+
+
+DEFAULT_CHUNK_SIZE :: 1024 * 128 
+GC_ALLIGNMENT :: 128
+
 ObjectHeader :: struct {
     class: ^Class,
     size: int,
@@ -11,12 +16,84 @@ ArrayHeader :: struct {
     obj: ObjectHeader,
     length: int,
 }
+FreePlace :: struct {
+    chunk: ^Chunk,
+    offset: int,
+    size: int,
+}
+Chunk :: struct {
+    data: rawptr,
+    size: int,
+}
+GC :: struct {
+    chunks: [dynamic]^Chunk,
+    free_places: [dynamic]FreePlace,
+    temp_roots: [dynamic]^ObjectHeader,
+}
 
+gc_find_freeplace :: proc(using gc: ^GC, size: int) -> Maybe(FreePlace) {
+    for i in 0..<len(gc.free_places) {
+        place := &gc.free_places[i]
+        if place.size == size {
+            res := place^
+            remove_range(&gc.free_places, i, i + 1)
+            return res
+        }
+        else if place.size > size {
+            res: FreePlace = { place.chunk, place.offset, size }
+            place.offset += size
+            place.size -= size
+            return res
+        }
+    }
+    return nil
+}
+gc_init :: proc(using gc: ^GC) {
+    gc.chunks = make([dynamic]^Chunk)
+    gc.free_places = {}
+    gc.free_places = make([dynamic]FreePlace)
+    gc.temp_roots = make([dynamic]^ObjectHeader)
+    gc_new_chunk(gc)
+}
+gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
+    data, err := mem.alloc(size, GC_ALLIGNMENT)
+    if err != .None {
+        panic("Failed to allocate memory")
+    }    
+    chunk := new(Chunk)
+    chunk.data = data
+    chunk.size = size
+    freeplace := FreePlace { chunk, 0, size }
+    append(&chunks, chunk)
+    append(&gc.free_places, freeplace)
+}
+
+gc_collect :: proc "c" (gc: ^GC) {
+    
+}
+align_size :: proc (size: $T, alignment := GC_ALLIGNMENT) -> T {
+    return size % T(alignment) == 0 ? size : size + T(alignment) - size % T(alignment)
+}
 gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: int = -1) {
     context = vm.ctx
-    ptr, err := mem.alloc(size == -1 ? class.size : size)
-    assert(err == .None)
-    obj := transmute(^ObjectHeader)ptr
+    objsize := align_size(size == -1 ? class.size : size)
+    objplace := gc_find_freeplace(vm.gc, objsize)
+    if objplace == nil {
+        gc_collect(vm.gc)
+        objplace = gc_find_freeplace(vm.gc, objsize)
+        if objplace == nil {
+            newchunksize := objsize > DEFAULT_CHUNK_SIZE ? align_size(objsize, DEFAULT_CHUNK_SIZE) : DEFAULT_CHUNK_SIZE
+            gc_new_chunk(vm.gc, newchunksize)
+            objplace = gc_find_freeplace(vm.gc, objsize)
+            if objplace == nil {
+                panic("")
+            }
+        }
+    }
+    
+
+
+    obj := transmute(^ObjectHeader)(transmute(int)objplace.(FreePlace).chunk.data + objplace.(FreePlace).offset)
     obj.size = size == -1 ? class.size : size
     obj.class = class
     output^ = obj

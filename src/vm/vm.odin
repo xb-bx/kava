@@ -16,6 +16,7 @@ VM :: struct {
     classes: map[string]^Class,
     object: ^Class,
     ctx: runtime.Context,
+    gc: ^GC,
 }
 array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {
@@ -431,6 +432,8 @@ print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Ha
                 fmt.fprint(file, s)
             case UTF8Info:
                 fmt.fprintf(file, "srcfile")
+            case DoubleInfo:
+                fmt.fprintf(file, "double %d", const.(classparser.DoubleInfo).value)
             case:
                 fmt.println(const)
                 panic("unimplemented")

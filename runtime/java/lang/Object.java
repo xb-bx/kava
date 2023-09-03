@@ -6,7 +6,7 @@ public class Object {
         return kava.Kava.objectToString(this);
     }
     public int hashCode() {
-        return 0;
+        return kava.Kava.objectHashCode(this);
     }
     public boolean equals(Object other) {
         return this == other;
