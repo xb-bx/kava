@@ -62,8 +62,8 @@ throw_NotImplementedException :: proc(msg: string) {
 read_byte :: proc "c" (fd: os.Handle) -> i32 {
     context = vm.ctx
     b := [1]u8{}
-    r, err := os.read(fd, b[:])
-    if err != 0 {
+    r, err := os.read(os.stdin, b[:])
+    if r <= 0 {
         panic("")
     }
     return cast(i32)b[0]

@@ -10,6 +10,7 @@ import "core:intrinsics"
 import "core:slice"
 import "core:time"
 import "zip:zip"
+import "core:sys/windows"
 
 error :: proc(str: string, args: ..any) {
     fmt.printf(str, ..args)

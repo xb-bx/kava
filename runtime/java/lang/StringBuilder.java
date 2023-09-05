@@ -33,6 +33,9 @@ public class StringBuilder {
         count += s.length();
         return this;
     }
+    public int length() {
+        return count;
+    }
     @Override
     public String toString() {
         return new String(buffer, 0, count); 

@@ -13,7 +13,8 @@ public class Scanner {
         do {
             if(r != 0) sb.append(r);
             r = (char)stream.read();
-        } while(r != '\n');
+            if(r == '\r') r = (char)stream.read();
+        } while(r != '\n' && r != '\r');
         return sb.toString();
     }
 }
