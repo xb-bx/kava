@@ -144,25 +144,33 @@ gc_alloc_string :: proc "c" (vm: ^VM, str: string, output: ^^ObjectHeader) {
     set_object_field(strobj, "offset", 0)
     output^ = strobj
 }
-
-get_object_field :: proc "c" (object: ^ObjectHeader, field_name: string) -> int {
-    for field in object.class.instance_fields {
+find_field :: proc "c" (class: ^Class, field_name: string) -> ^Field {
+    for &field in class.instance_fields {
         if field.name == field_name {
-            return (transmute(^int)(transmute(int)object + cast(int)field.offset))^ 
+            return field
         }
     }
-    context = {}
-    panic("Unknown field")
+    if class.super_class != nil {
+        return find_field(class.super_class, field_name)
+    }
+    return nil
+}
+get_object_field :: proc "c" (object: ^ObjectHeader, field_name: string) -> int {
+    field := find_field(object.class, field_name)
+    if field == nil {
+        context = {}
+        panic("Unknown field")
+    }
+    return (transmute(^int)(transmute(int)object + cast(int)field.offset))^ 
 }
 array_to_slice :: proc($T: typeid, array: ^ArrayHeader) -> []T {
     return slice.from_ptr(transmute(^T)(transmute(int)array + size_of(ArrayHeader)), array.length)
 }
 set_object_field :: proc(object: ^ObjectHeader, field_name: string, raw_data: int) {
-    for field in object.class.instance_fields {
-        if field.name == field_name {
-            (transmute(^int)(transmute(int)object + cast(int)field.offset))^ = raw_data
-            return
-        }
+    field := find_field(object.class, field_name)
+    if field == nil {
+        context = {}
+        panic("Unknown field")
     }
-    panic("Unknown field")
+    (transmute(^int)(transmute(int)object + cast(int)field.offset))^ = raw_data
 }
