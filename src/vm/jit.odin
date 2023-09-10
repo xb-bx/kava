@@ -514,6 +514,19 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 sub(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
                 stack_count += 1
+            case .lcmp:
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, rcx, at(rbp, stack_base - 8 * (stack_count + 1)))
+                mov(assembler, rdx, 0)
+                cmp(assembler, rcx, rax)
+                cmove(assembler, rax, rdx)
+                mov(assembler, rdx, 1)
+                cmovg(assembler, rax, rdx)
+                mov(assembler, rdx, -1)
+                cmovl(assembler, rax, rdx)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .ladd:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
@@ -559,6 +572,9 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .ineg:
                 neg_m32(assembler, at(rbp, stack_base - 8 * stack_count))
+            case .lneg:
+                neg_m64(assembler, at(rbp, stack_base - 8 * stack_count))
+            
             case .putstatic:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 field := get_fieldrefconst_field(vm, method.parent.class_file, index).value.(^Field)
@@ -609,6 +625,11 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 1
                 cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 jle(assembler, labels[start])
+            case .iflt:
+                start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                stack_count -= 1
+                cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
+                jlt(assembler, labels[start])
             case .ifgt:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 1
@@ -773,6 +794,15 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 call(assembler, rax)
                 when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
                 addsx(assembler, rsp, elems_size)
+            case .dup_x1:
+                mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
+                stack_count -= 1
+                mov(assembler, rcx, at(rbp, stack_base - 8 * stack_count))
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rcx)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .dup:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
                 stack_count += 1

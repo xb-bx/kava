@@ -9,6 +9,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:intrinsics"
 import "core:runtime"
+import "core:sys/windows"
 import "x86asm:x86asm"
 
 VM :: struct {
@@ -460,7 +461,7 @@ need_to_print_const :: proc(opcode: classparser.Opcode) -> bool {
             ._return, .areturn, .ireturn, .lreturn, .freturn, .dreturn, .ifnonnull:
             return false
         case .invokespecial, .invokestatic, .invokeinterface, .new, .putfield, .putstatic, .newarray, .getfield, .getstatic, .invokevirtual, .ldc, .ldc_w, .ldc2_w, .instanceof,
-            .multianewarray, .checkcast:
+            .multianewarray, .checkcast, .anewarray:
             return true 
         case:
             fmt.println(opcode)

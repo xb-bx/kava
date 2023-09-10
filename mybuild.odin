@@ -78,7 +78,11 @@ main :: proc() {
     }
     args := os.args[1:]
     collections: map[string]string = {"zip" = "odin-zip/src",  "kava" = "src", "libzip" = "odin-zip/libzip", "x86asm" = "x86asm/src" }
-    additional := [?]string { "-debug" }
+    when ODIN_OS == .Windows {
+        additional := [?]string { "-debug", "-extra-linker-flags:/STACK:4194304"}
+    } else {
+        additional := [?]string { "-debug",}
+    }
     odin_build("src/classparser", output = CLASSPARSER_EXE, collections = collections, additional_args = additional[:])
     odin_build("src/vm", output = KAVA_EXE, collections = collections, additional_args = additional[:])
     odin_build("src/gdbplugin", "gdbplugin.so", collections, additional_args = additional[:], build_mode = .Dynamic)

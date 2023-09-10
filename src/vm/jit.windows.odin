@@ -38,50 +38,43 @@ jit_invoke_static :: proc(using ctx: ^JittingContext, instruction: classparser.I
 
     }
 
-    extra_args_size : i32 = 0
-    if args > len(registers) {
-        extra_args_size = (args - len(registers)) * 8
-        off := extra_args_size - 8
-        if extra_args_size % 16 != 0 {
-            extra_args_size += 8
-        }
-        subsx(assembler, rsp, extra_args_size)
-        extra_args := args - len(registers)
-        for argindex in len(registers)..<args {
-            mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-            mov(assembler, at(rsp, off), rax)
-            stack_count -= 1
-            off -= 8
-        }
-    }
-
+    extra_args_size : i32 = (args - 4) * 8
+    subsx(assembler, rsp, 32 + align_size(extra_args_size, 16))
     argi := 0
-    last_register_index := min(args, len(registers))-1 
-    register_index: i32 = 0
-    for argindex in 0..<min(args, len(registers)) {
-        if argindex < 0 { break }
-        arg := target.args[argi] 
+    first_arg_index := stack_count - args + 1
+    for i in 0..<args {
+        arg := target.args[argi]
+        argi += 1
         if is_long_or_double(arg) {
             argi += 1
         }
-        argi += 1
-        mov(assembler, registers[last_register_index - register_index], at(rbp, stack_base - 8 * stack_count))
-        stack_count -= 1
-        register_index += 1
+        if i < 4 {
+            if arg.name == "double" {
+                movsd(assembler, Xmm(i), at(rbp, stack_base - 8 * (first_arg_index + i)))  
+            } else if arg.name == "float" {
+                movss(assembler, Xmm(i), at(rbp, stack_base - 8 * (first_arg_index + i)))  
+            }
+            else {
+                mov(assembler, registers[i], at(rbp, stack_base - 8 * (first_arg_index + i)))  
+            }
+        } 
+        else {
+            mov(assembler, rax, at(rbp, stack_base - 8 * (first_arg_index + i)))
+            mov(assembler, at(rsp, 32 + 8 * (i - 4)), rax)
+        }
     }
-
+    stack_count -= args
     mov(assembler, rax, transmute(int)&target.jitted_body)
-    subsx(assembler, rsp, i32(32))
     call(assembler, at(rax))
-    if extra_args_size != 0 {
-        addsx(assembler, rsp, i32(extra_args_size + 32))
-    } else {
-        addsx(assembler, rsp, i32(32))
-    }
-
+    addsx(assembler, rsp, 32 + align_size(extra_args_size, 16))
     if target.ret_type != vm.classes["void"] {
         stack_count += 1
-        mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+        if target.ret_type.name == "float" || target.ret_type.name == "double" {
+            movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+        }
+        else {
+            mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+        }
     }
 }
 
@@ -102,60 +95,50 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
 
     registers := [?]Reg64 {rdx, r8, r9}
 
-    extra_args_size : i32 = 0
-    if args > len(registers) {
-        extra_args_size = (args - len(registers)) * 8
-        off := extra_args_size - 8
-        if extra_args_size % 16 != 0 {
-            extra_args_size += 8
-        }
-        subsx(assembler, rsp, extra_args_size)
-        extra_args := args - len(registers)
-        for argindex in len(registers)..<args {
-            mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-            mov(assembler, at(rsp, off), rax)
-            stack_count -= 1
-            off -= 8
-        }
-    }
+    extra_args_size : i32 = (args - 3) * 8
+    subsx(assembler, rsp, 32 + align_size(extra_args_size, 16))
     argi := 0
-    last_register_index := min(args, len(registers))-1 
-    register_index: i32 = 0
-    for argindex in 0..<min(args, len(registers)) {
-        if argindex < 0 { break }
-        arg := target.args[argi] 
+    first_arg_index := stack_count - args + 1
+    for i in 0..<args {
+        arg := target.args[argi]
+        argi += 1
         if is_long_or_double(arg) {
             argi += 1
         }
-        argi += 1
-        mov(assembler, registers[last_register_index - register_index], at(rbp, stack_base - 8 * stack_count))
-        stack_count -= 1
-        register_index += 1
+        if i < 3 {
+            if arg.name == "double" {
+                movsd(assembler, Xmm(i), at(rbp, stack_base - 8 * (first_arg_index + i)))  
+            } else if arg.name == "float" {
+                movss(assembler, Xmm(i), at(rbp, stack_base - 8 * (first_arg_index + i)))  
+            }
+            else {
+                mov(assembler, registers[i], at(rbp, stack_base - 8 * (first_arg_index + i)))  
+            }
+        } 
+        else {
+            mov(assembler, rax, at(rbp, stack_base - 8 * (first_arg_index + i)))
+            mov(assembler, at(rsp, 32 + 8 * (i - 3)), rax)
+        }
     }
-
-    
-    mov(assembler, rcx, at(rbp, stack_base - 8 * stack_count))
+    stack_count -= args
+    mov(assembler, rcx, at(rbp, stack_base - stack_count * 8))
     stack_count -= 1
     if virtual {
-        subsx(assembler, rsp, i32(32))
         call(assembler, at(r10))
     }
     else {
         mov(assembler, rax, transmute(int)&target.jitted_body)
-        subsx(assembler, rsp,i32(32))
         call(assembler, at(rax))
     }
-
-    if extra_args_size != 0 {
-        addsx(assembler, rsp, extra_args_size + 32)
-    }
-    else {
-        addsx(assembler, rsp, i32(32))
-    }
-
+    addsx(assembler, rsp, 32 + align_size(extra_args_size, 16))
     if target.ret_type != vm.classes["void"] {
         stack_count += 1
-        mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+        if target.ret_type.name == "float" || target.ret_type.name == "double" {
+            movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+        }
+        else {
+            mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+        }
     }
 
 }
@@ -165,8 +148,6 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
     reg_args: []Reg64 = nil
     reg_args_a := [?]Reg64 { rcx, rdx, r8, r9 }
 
-    argi := 0
-    regi := 0
     extra_args := false
     sub_size:int = 0
     if len(locals) != 0 {
@@ -179,44 +160,39 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
         sub_size += 8
     }
     subsx(assembler, rsp, i32(sub_size))
+    static := false
     if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Static) { 
         reg_args = reg_args_a[1:]
         mov(assembler, at(rbp, locals[0]), reg_args_a[0])
     } else {
         reg_args = reg_args_a[0:]
+        static = true
     }
-    for argi < len(method.args) {
-        if regi >= len(reg_args) {
-            extra_args = true
-            break
+    regular, fp := split_args_into_regular_and_fp(method.args) 
+    defer delete(regular)
+    defer delete(fp)
+    regi := 0
+    for regular_arg in regular {
+        local := static ? locals[regular_arg.original_index] : locals[regular_arg.original_index + 1]
+        if regular_arg.index < len(reg_args) {
+            mov(assembler, at(rbp, local), reg_args[regular_arg.index]) 
+        } 
+        else {
+            index: i32 = i32(regular_arg.index - len(reg_args))
+            mov(assembler, rax, at(rbp, cast(i32)(16 + 32 + index * 8)))
+            mov(assembler, at(rbp, local), rax)
         }
-        arg := method.args[argi]
-        if arg.name == "double" || arg.name == "long" {
-            argi += 1
-        }
-        argi += 1
-        if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Static) { 
-            mov(assembler, at(rbp, locals[argi]), reg_args[regi])
-        } else {
-            mov(assembler, at(rbp, locals[argi - 1]), reg_args[regi])
-        }
-        regi += 1
     }
-    rev_argi := argi
-    off: i32 = 16 + 32
-    for rev_argi < len(method.args) {
-        arg := method.args[rev_argi]
-        if arg.name == "double" || arg.name == "long" {
-            rev_argi += 1
-        }
-        mov(assembler, rax, at(rbp, off))
-        if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Static) { 
-            mov(assembler, at(rbp, locals[rev_argi + 1]), rax)
+    xmmi := 0
+    for fp_arg in fp {
+        local := static ? locals[fp_arg.original_index] : locals[fp_arg.original_index + 1]
+        if fp_arg.index < len(reg_args)  {
+            movsd(assembler, at(rbp, local), Xmm(fp_arg.index)) 
         } else {
-            mov(assembler, at(rbp, locals[rev_argi]), rax)
+            index: i32 = i32(fp_arg.index - len(reg_args))
+            mov(assembler, rax, at(rbp, cast(i32)(16 + 32 + index * 8)))
+            mov(assembler, at(rbp, local), rax)
         }
-        rev_argi += 1
-        off += 8
     }
 }
 

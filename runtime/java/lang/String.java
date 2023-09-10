@@ -78,6 +78,37 @@ public class String {
         return false;
     }
     public String[] split(String str) {
+        if(str.length() == 1) {
+            return splitByChar(str.charAt(0));
+        }
         throw new NotImplementedException();
+    }
+    private int countChars(char c) {
+        int res = 0;
+        for(int i = 0; i < length; i++) {
+            if(charAt(i) == c) res++;
+        }
+        return res;
+    }
+    private String[] splitByChar(char c) {
+        String[] res = new String[countChars(c) + 1];
+        int resi = 0;
+        if(res.length == 0) {
+            res[0] = this;
+            return res;
+        }
+        StringBuilder sb = new StringBuilder();
+        for(int i = 0; i < length; i++) {
+            if(charAt(i) != c) {
+                sb.append(charAt(i));
+            } else {
+                res[resi++] = sb.toString();
+                sb = new StringBuilder();
+            }
+        }
+        if(sb.length() > 0) {
+            res[resi] = sb.toString();
+        }
+        return res;
     }
 }

@@ -381,6 +381,25 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
         instr := cb.code[i]
         i += 1
         #partial switch get_instr_opcode(instr) {
+            case .pop:
+                if stack.count == 0 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                stack_pop(stack)
+            case .pop2:
+                if stack.count == 0 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                typ := stack_pop_class(stack)
+                if is_long_or_double(typ) {
+                    simple := &cb.code[i - 1].(classparser.SimpleInstruction)  
+                    simple.opcode = .pop
+                } else {
+                    if stack.count == 0 {
+                        return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                    }
+                    stack_pop(stack)
+                }
             case .aconst_null:
                 if !stack_push(stack, vm.object, true) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
@@ -487,7 +506,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 if locals[index] == nil {
-                    locals[index] = t
+                    locals[index] = vm.classes["long"]
                 }
             case .istore:
                 t := stack_pop_class(stack)
@@ -946,6 +965,22 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 else if !stack_eq(next_block.stack_at_start, stack) || !locals_equal(locals, next_block.locals)  {
                     return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
+            case .dup_x1:
+                if stack.count < 2 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                t1 := stack_pop(stack)
+                t2 := stack_pop(stack)
+                if !stack_push(stack, t1.class, t1.is_null) {
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
+                }
+                if !stack_push(stack, t2.class, t2.is_null) {
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
+                }
+                if !stack_push(stack, t1.class, t1.is_null) {
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
+                }
+
             case .dup:
                 if stack.count == 0 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
@@ -1189,6 +1224,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, value1)
+            case .lneg:
+                if stack.count < 1 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value1 := stack_pop_class(stack)
+                if value1.name != "long" {
+                    return verification_error("Invalid bytecode. Expected long value", this_method, instr)
+                }
+                stack_push(stack, value1)
             case .ineg:
                 if stack.count < 1 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
@@ -1226,6 +1270,16 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if array.class.class_type != ClassType.Array {
                     return verification_error("Invalid bytecode. Expected array", this_method, instr)
+                }
+                stack_push(stack, vm.classes["int"])
+            case .lcmp:
+                if stack.count < 2 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                t1 := stack_pop_class(stack)
+                t2 := stack_pop_class(stack)
+                if t1.name != "long" || t2.name != "long" {
+                    return verification_error("Invalid bytecode. Expected long", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
             case:
