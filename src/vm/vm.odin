@@ -434,6 +434,13 @@ print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Ha
                 fmt.fprintf(file, "srcfile")
             case DoubleInfo:
                 fmt.fprintf(file, "double %d", const.(classparser.DoubleInfo).value)
+            case InterfaceMethodRefInfo:
+                mref := const.(InterfaceMethodRefInfo)
+                class_name := resolve_class_name(classfile, mref.class_index)
+                name_and_type := resolve_name_and_type(classfile, mref.name_and_type_index).(NameAndTypeInfo)
+                name := resolve_utf8(classfile, name_and_type.name_index)
+                type := resolve_utf8(classfile, name_and_type.descriptor_index)
+                fmt.fprintf(file, "interface method %s.%s:%s", class_name, name, type)
             case:
                 fmt.println(const)
                 panic("unimplemented")
@@ -452,7 +459,7 @@ need_to_print_const :: proc(opcode: classparser.Opcode) -> bool {
             .bipush, .sipush, .iinc, .aaload, .aastore, .aconst_null, .goto, .goto_w,
             ._return, .areturn, .ireturn, .lreturn, .freturn, .dreturn, .ifnonnull:
             return false
-        case .invokespecial, .invokestatic, .new, .putfield, .putstatic, .newarray, .getfield, .getstatic, .invokevirtual, .ldc, .ldc_w, .ldc2_w, .instanceof,
+        case .invokespecial, .invokestatic, .invokeinterface, .new, .putfield, .putstatic, .newarray, .getfield, .getstatic, .invokevirtual, .ldc, .ldc_w, .ldc2_w, .instanceof,
             .multianewarray, .checkcast:
             return true 
         case:

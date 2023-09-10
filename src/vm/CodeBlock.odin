@@ -300,6 +300,17 @@ type_is_integer :: proc(typ: ^Class) -> bool {
     }
     return typ.primitive == PrimitiveType.Int ||  typ.primitive == PrimitiveType.Byte || typ.primitive == PrimitiveType.Short || typ.primitive == PrimitiveType.Long || typ.primitive == PrimitiveType.Boolean || typ.primitive == PrimitiveType.Char 
 }
+does_implements_interface :: proc(class: ^Class, interface: ^Class) -> bool {
+    for iface in class.interfaces {
+        if iface == interface {
+            return true
+        }
+    }
+    if class.super_class == nil {
+        return false
+    }
+    return does_implements_interface(class.super_class, interface) 
+}
 is_stacktype_subtype_of :: proc(subtype: ^StackType, parent: ^Class) -> bool {
     if subtype.is_null {
         return true
@@ -791,6 +802,48 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                         return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                     }
                 }
+            case .invokeinterface:
+                index := instr.(SimpleInstruction).operand.(classparser.TwoOperands).op1
+                interface_method := get_interface_method(vm, this_method.parent.class_file, index)
+                if interface_method.is_err {
+                    return verification_error(interface_method.error.(string), this_method, instr)
+                }
+                method := interface_method.value.(^Method)
+                stack_size := len(method.args)
+                reversed_args := slice.clone(method.args)
+                slice.reverse(reversed_args)
+                defer delete(reversed_args)
+                argi := 0
+                for argi < len(reversed_args) {
+                    arg := reversed_args[argi]
+                    typ := stack_pop(stack)
+                    if typ == nil {
+                        return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                    }
+                    if typ.class != arg && !is_stacktype_subtype_of(typ, arg) && !(type_is_integer(typ.class) && type_is_integer(arg)) {
+                        return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
+                    }
+                    if typ.class.name == "double" || typ.class.name == "long" {
+                        argi += 1
+                    }
+                    argi += 1
+                }
+                if !hasFlag(method.access_flags, MethodAccessFlags.Static) {
+                    this := stack_pop(stack) 
+                    if this == nil {
+                        return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                    }
+                    if this.class != method.parent && !does_implements_interface(this.class, method.parent) {
+                        return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
+                    }
+                }
+                if method.ret_type != vm.classes["void"] {
+                    if !stack_push(stack, method.ret_type) {
+                        return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
+                    }
+                }
+            
+            
             case .invokespecial, .invokevirtual:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 methodres := get_methodrefconst_method(vm, this_method.parent.class_file, index)
@@ -1205,7 +1258,36 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
 type_is_object :: proc(typ: ^Class) -> bool {
     return typ.class_type == ClassType.Class
 } 
-
+get_interface_method :: proc(vm: ^VM, class_file: ^classparser.ClassFile, index: int) -> shared.Result(^Method, string) {
+    using shared
+    using classparser
+    if index <= 0 || index > len(class_file.constant_pool) {
+        return Err(^Method, "Invalid bytecode")
+    }
+    interface, ok := class_file.constant_pool[index - 1].(classparser.InterfaceMethodRefInfo)
+    if !ok {
+        return Err(^Method, "Invalid bytecode")
+    }
+    class := get_class(vm, class_file, int(interface.class_index))
+    if class.is_err {
+        return Err(^Method, class.error.(string))
+    }
+    classs := class.value.(^Class)
+    name_and_type := resolve_name_and_type(class_file, interface.name_and_type_index)
+    if name_and_type == nil {
+        return Err(^Method, "Invalid bytecode")
+    }
+    name := resolve_utf8(class_file, name_and_type.(NameAndTypeInfo).name_index)
+    descriptor:= resolve_utf8(class_file, name_and_type.(NameAndTypeInfo).descriptor_index)
+    if name == nil || descriptor == nil {
+        return Err(^Method, "Invalid bytecode")
+    }
+    method := find_method_by_name_and_descriptor(classs, name.(string), descriptor.(string))
+    if method == nil {
+        return Err(^Method, "Unknown method")
+    }
+    return Ok(string, method)
+}
 get_class :: proc(vm: ^VM, class_file: ^classparser.ClassFile, index: int) -> shared.Result(^Class, string) {
     using shared
     using classparser

@@ -1476,7 +1476,7 @@ print_class_info :: proc(class: ClassFile) {
                 name := class.constant_pool[name_and_type.name_index - 1].(UTF8Info)
                 type := class.constant_pool[name_and_type.descriptor_index - 1].(UTF8Info)
 
-                fmt.printf("#%i interface method: %s.%s:%s", i + 1, class_name.str, name.str, type.str)
+                fmt.printf("#%i interface method: %s.%s:%s\n", i + 1, class_name.str, name.str, type.str)
             case StoopitJava8ByteConstantTakeTwoPlacesInConstantPool:
             case:
                 fmt.println(info)

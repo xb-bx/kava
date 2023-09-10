@@ -456,6 +456,9 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .invokestatic:
                 movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 jit_invoke_static(ctx, instruction)
+            case .invokeinterface:
+                movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
+                jit_invoke_interface(ctx, instruction)
             case .invokevirtual:
                 movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 jit_invoke_virtual(ctx, instruction)
@@ -1010,11 +1013,20 @@ jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, inde
 is_long_or_double :: proc(class: ^Class) -> bool {
     return class.name == "long" || class.name == "double"
 }
+jit_invoke_interface:: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
+    index := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
+    method := get_interface_method(vm, ctx.method.parent.class_file, index).value.(^Method)
+    jit_invoke_method(ctx, method, instruction)
+}
 jit_invoke_special :: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
-    jit_invoke_method(ctx, instruction, false)
+    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op 
+    method := get_methodrefconst_method(vm, ctx.method.parent.class_file, index).value.(^Method)
+    jit_invoke_method(ctx, method, instruction, false)
 }
 jit_invoke_virtual :: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
-    jit_invoke_method(ctx, instruction)
+    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op 
+    method := get_methodrefconst_method(vm, ctx.method.parent.class_file, index).value.(^Method)
+    jit_invoke_method(ctx, method, instruction)
 }
 count_args :: proc(method: ^Method) -> i32 {
     argi : i32= 0

@@ -85,11 +85,10 @@ jit_invoke_static :: proc(using ctx: ^JittingContext, instruction: classparser.I
     }
 }
 
-jit_invoke_method :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction, virtual_call: bool = true) {
+
+jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instruction: classparser.Instruction, virtual_call: bool = true) {
     using x86asm
-    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-    target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
-    virtual := !hasFlag(target.access_flags, classparser.MethodAccessFlags.Final) && get_instr_opcode(instruction) == classparser.Opcode.invokevirtual && virtual_call
+    virtual := !hasFlag(target.access_flags, classparser.MethodAccessFlags.Final) && (get_instr_opcode(instruction) == classparser.Opcode.invokevirtual || get_instr_opcode(instruction) == classparser.Opcode.invokeinterface) && virtual_call
     args := count_args(target)
     if virtual {
         mov(assembler, rcx, transmute(int)vm)
