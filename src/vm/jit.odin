@@ -1048,6 +1048,7 @@ count_args :: proc(method: ^Method) -> i32 {
     return args
 }
 jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method) -> ^[^]u8 {
+    using classparser
     context = vm.ctx
     if object == nil {
         throw_NullPointerException(vm)
@@ -1056,6 +1057,20 @@ jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method
     found :^Method= nil
     class := object.class
     for found == nil {
+        if class == nil {
+            if hasFlag(target.parent.access_flags, ClassAccessFlags.Interface) {
+                if hasFlag(target.access_flags, MethodAccessFlags.Abstract) {
+                    panic("")
+                }   
+                return &target.jitted_body
+            }
+            print_flags(target.parent.access_flags)
+            fmt.println("\n", target.parent.name)
+            print_flags(target.access_flags)
+            fmt.println()
+            fmt.println(int(target.access_flags), int(target.parent.access_flags))
+            panic("")
+        }
         found = find_method(class, target.name, target.descriptor)
         if found != nil && hasFlag(found.access_flags, classparser.MethodAccessFlags.Abstract) {
             found = nil

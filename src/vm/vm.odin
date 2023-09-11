@@ -178,6 +178,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
             }
             class := new(Class)
             class.class_file = classfile
+            class.access_flags = classfile.access_flags
             if class_name == "java/lang/Object" {
                 vm.object = class
             }
