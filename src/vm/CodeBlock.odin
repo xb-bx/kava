@@ -219,7 +219,7 @@ get_methodrefconst_method :: proc(vm: ^VM, classfile: ^classparser.ClassFile, in
     if type.is_err {
         return Err(^Method, type.error.(string))
     }    
-    method := find_method_by_name_and_descriptor(type.value.(^Class), name.(string), descriptor.(string))
+    method := find_method_virtual(type.value.(^Class), name.(string), descriptor.(string))
     if method == nil {
         return Err(^Method, fmt.aprintf("Failed to find method %s.%s:%s", class_name.(string), name.(string), descriptor.(string)))
     }
@@ -541,6 +541,46 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected reference-type local variable", this_method, instr)
                 }
                 stack_push(stack, locals[index])
+            case .lookupswitch:
+                canEscape = false
+                t := stack_pop_class(stack) 
+                if t == nil || !type_is_integer(t) {
+                    return verification_error("Invalid bytecode. Expected integer on stack before istore operation", this_method, instr)
+                }
+                table := instr.(classparser.LookupSwitch)
+                for offset in table.pairs {
+                    block := find_codeblock_by_start(cblocks, offset.snd)         
+                    if block == nil {
+                        return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
+                    }
+                    if block.stack_at_start == nil {
+                        block.stack_at_start = new_clone(copy_stack(stack^))
+                        block.locals = slice.clone(locals)
+                        res := calculate_stack(vm, block, cblocks, this_method)
+                        if res != nil {
+                            return res
+                        }
+                    }
+                    else if !stack_eq(block.stack_at_start, stack) || !locals_equal(locals, block.locals)  {
+                        return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
+                    }
+                }
+                default_block := find_codeblock_by_start(cblocks, table.default)
+                if default_block == nil {
+                    return verification_error("Invalid bytecode. Invalid jump offset", this_method, instr)
+                }
+                if default_block.stack_at_start == nil {
+                    default_block.stack_at_start = new_clone(copy_stack(stack^))
+                    default_block.locals = slice.clone(locals)
+                    
+                    res := calculate_stack(vm, default_block, cblocks, this_method)
+                    if res != nil {
+                        return res
+                    }
+                }
+                else if !stack_eq(default_block.stack_at_start, stack) || !locals_equal(locals, default_block.locals)  {
+                    return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
+                }
                 
             case .tableswitch:
                 canEscape = false
@@ -985,6 +1025,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if stack.count == 0 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
+
                 t := stack_pop(stack)
                 if !stack_push(stack, t.class, t.is_null) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)

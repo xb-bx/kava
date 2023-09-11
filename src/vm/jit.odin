@@ -258,8 +258,8 @@ jit_array_load :: proc(using ctx: ^JittingContext, instruction: classparser.Inst
     stack_count -= 2
     mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
     jit_null_check(assembler, rax, get_instr_offset(instruction))
-    mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-    jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+    mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2)))
+    jit_bounds_check(assembler, rax, r10d, get_instr_offset(instruction))
     switch elem_size {
         case 1:
             mov(assembler, r10b, at(rax, r10, i32(size_of(ArrayHeader)), 1))
@@ -278,8 +278,8 @@ jit_array_store :: proc(using ctx: ^JittingContext, instruction: classparser.Ins
     stack_count -= 3
     mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
     jit_null_check(assembler, rax, get_instr_offset(instruction))
-    mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2)))
-    jit_bounds_check(assembler, rax, r10, get_instr_offset(instruction))
+    mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2)))
+    jit_bounds_check(assembler, rax, r10d, get_instr_offset(instruction))
     mov(assembler, r9, at(rbp, stack_base - 8 * (stack_count + 3)))
     switch elem_size {
         case 1:
@@ -845,6 +845,15 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_null_check(assembler, rax, get_instr_offset(instruction))
                 mov(assembler, rax, at(rax, cast(i32)offset_of(ArrayHeader, length)))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+            case .lookupswitch:
+                table := instruction.(classparser.LookupSwitch)
+                mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
+                stack_count -= 1
+                for offset in table.pairs {
+                    cmp(assembler, eax, i32(offset.fst))
+                    je(assembler, labels[offset.snd])
+                }
+                jmp(assembler, labels[table.default])
             case .tableswitch:
                 table := instruction.(classparser.TableSwitch)
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
@@ -979,16 +988,17 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int)
     set_label(assembler, oklabel)
     
 }
-jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, index: x86asm.Reg64, pc: int) {
+jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, index: x86asm.Reg32, pc: int) {
     using x86asm
     notoutofbounds := create_label(assembler)
     outofbounds := create_label(assembler)
 
     cmp(assembler, at(array, i32(offset_of(ArrayHeader, length))), index)
     jle(assembler, outofbounds)
-    cmpsx(assembler, index, i32(0))
+    cmp(assembler, index, i32(0))
     jge(assembler, notoutofbounds)
     set_label(assembler, outofbounds)
+//     int3(assembler)
 
     movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(pc))
 
@@ -1083,6 +1093,18 @@ jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method
         panic("")
     }
     return &found.jitted_body
+}
+find_method_virtual :: proc(class: ^Class, name: string, descriptor: string) -> ^Method {
+    class := class
+    for class != nil {
+        for &method in class.methods {
+            if method.name == name && method.descriptor == descriptor {
+                return &method
+            }
+        }
+        class = class.super_class
+    }
+    return nil
 }
 find_method :: proc(class: ^Class, name: string, descriptor: string) -> ^Method {
     for &method in class.methods {

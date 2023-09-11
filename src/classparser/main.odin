@@ -1319,7 +1319,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 lookup := LookupSwitch {
                     offset = start,
                     opcode = opcode,
-                    default = cast(int)default.(u32),
+                    default = cast(int)default.(u32) + start,
                     
                 }
                 lookup.pairs = make([]IntPair, npairs.(u32))
