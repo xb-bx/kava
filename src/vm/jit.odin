@@ -812,7 +812,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, reg_args[0], transmute(int)vm)
                 mov(assembler, reg_args[1], at(rbp, stack_base - 8 * stack_count)) 
                 mov(assembler, reg_args[2], rsp)
-                mov(assembler, rax, transmute(int)throw)
+                mov(assembler, rax, transmute(int)throw_impl)
                 when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
                 when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
@@ -820,36 +820,26 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, rbp, at(rsp))
                 jmp(assembler, rax)
             case .instanceof:
-                fals := create_label(assembler)                
-                end := create_label(assembler)
-                mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-                mov(assembler, r10, transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
-                mov(assembler, rax, at(rax))
-                cmp(assembler, rax, r10)
-                jne(assembler, fals)
-                mov(assembler, rax, 1)
-                jmp(assembler, end)
-                set_label(assembler, fals)
-                mov(assembler, rax, 0)
-                set_label(assembler, end)
+                mov(assembler, parameter_registers[0], transmute(int)vm)
+                mov(assembler, parameter_registers[1], transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
+                mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
+                mov(assembler, rax, transmute(int)instanceof)
+                when ODIN_OS == .Windows { subsx(assembler, rsp, 32) }
+                call(assembler, rax)
+                when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
+                andsx(assembler, rax, i32(0xff))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .checkcast:
-                fals := create_label(assembler)                
-                end := create_label(assembler)
-                mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-                mov(assembler, r10, transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
-                mov(assembler, r11, at(rax))
-                cmp(assembler, r11, r10)
-                jne(assembler, fals)
-                jmp(assembler, end)
-                set_label(assembler, fals)
-                mov(assembler, rax, 0)
-                set_label(assembler, end)
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+                movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
+                mov(assembler, parameter_registers[0], transmute(int)vm)
+                mov(assembler, parameter_registers[1], transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
+                mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
+                mov(assembler, rax, transmute(int)checkcast)
+                when ODIN_OS == .Windows { subsx(assembler, rsp, 32) }
+                call(assembler, rax)
+                when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
             case .arraylength:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
                 jit_null_check(assembler, rax, get_instr_offset(instruction))
@@ -879,41 +869,27 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         }
     }
 } 
-throw :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
+checkcast :: proc "c" (vm: ^VM, class: ^Class, object: ^ObjectHeader) {
     context = vm.ctx
-    i := len(stacktrace) - 1
-    items_to_remove := 0
-    for i >= 0 {
-        entry := stacktrace[i]
-        table := entry.method.exception_table
-        for exception in table {
-            if exception.exception == exc.class ||  is_subtype_of(exc.class, exception.exception) {
-                if entry.pc >= exception.start && entry.pc <= exception.end {
-                    if items_to_remove > 0 {
-                        start := len(stacktrace) - items_to_remove
-                        remove_range(&stacktrace, start, start + items_to_remove)
-                    }
-                    old_rbp^ = entry.rbp
-                    return transmute(int)entry.method.jitted_body + exception.offset 
-                }
-            }
-        }
-        items_to_remove += 1
-        i -= 1
+    if(object == nil) {
+        throw_NullPointerException(vm)
     }
-        
-    toString := transmute(proc "c" (^ObjectHeader) -> ^ObjectHeader)(jit_resolve_virtual(vm, exc, find_method(vm.classes["java/lang/Object"], "toString", "()Ljava/lang/String;"))^)    
-    assert(toString != nil)
-    str := toString(exc)
-    msg := exc.class.name
-    if str != nil {
-        arr := transmute(^ArrayHeader)get_object_field(str, "value")
-        chars := array_to_slice(u16, arr)
-        msg = strings.clone_from_ptr(transmute(^u8)slice.as_ptr(chars), len(chars) * 2)
+    if !instanceof(vm, class, object) {
+        message := fmt.aprintf("%s cannot be cast to %s", object.class.name, class.name)
+        messageobj: ^ObjectHeader = nil
+        gc_alloc_string(vm, message, &messageobj)
+        delete(message)
+        throw_exception(vm, "java/lang/ClassCastException", messageobj)
     }
-    fmt.printf("Unhandled exception %s\n", msg)
-    print_stack_trace()
-    panic("")
+}
+instanceof :: proc "c" (vm: ^VM, class: ^Class, object: ^ObjectHeader) -> bool {
+    context = vm.ctx
+    if(hasFlag(class.access_flags, classparser.ClassAccessFlags.Interface)) {
+        return does_implements_interface(object.class, class)      
+    }
+    else {
+        return class == object.class || is_subtype_of(object.class, class)
+    }
 }
 d2i :: proc "c" (d: f64) -> i32 {
     return cast(i32)d
@@ -962,7 +938,7 @@ jit_div_by_zero_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, p
     mov(assembler, parameter_registers[1], at(rsp))
     mov(assembler, parameter_registers[2], rsp)
     addsx(assembler, parameter_registers[2], i32(8))
-    mov(assembler, rax, transmute(int)throw)
+    mov(assembler, rax, transmute(int)throw_impl)
     when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
     when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
@@ -993,7 +969,7 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int)
     mov(assembler, parameter_registers[1], at(rsp))
     mov(assembler, parameter_registers[2], rsp)
     addsx(assembler, parameter_registers[2], i32(8))
-    mov(assembler, rax, transmute(int)throw)
+    mov(assembler, rax, transmute(int)throw_impl)
     when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
     when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
@@ -1031,7 +1007,7 @@ jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, inde
     mov(assembler, parameter_registers[1], at(rsp))
     mov(assembler, parameter_registers[2], rsp)
     addsx(assembler, parameter_registers[2], i32(8))
-    mov(assembler, rax, transmute(int)throw)
+    mov(assembler, rax, transmute(int)throw_impl)
     when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
     when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
@@ -1074,7 +1050,7 @@ count_args :: proc(method: ^Method) -> i32 {
 jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method) -> ^[^]u8 {
     context = vm.ctx
     if object == nil {
-        throw_NullPointerException()
+        throw_NullPointerException(vm)
         return nil
     }
     found :^Method= nil
