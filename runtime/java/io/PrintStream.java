@@ -13,6 +13,9 @@ public class PrintStream {
             fs.write(str.charAt(i));
         }
     }    
+    public void print(char c) {
+        fs.write(c);
+    }    
     public void println() {
         fs.write('\n');
     }

@@ -3,7 +3,15 @@ import "core:os"
 import "core:fmt"
 import "core:sys/unix"
 import "core:intrinsics"
+import "core:math/rand"
+import "core:math"
 
+/// randomDouble ()D
+random_double :: proc "c" () -> f64 { 
+    context = vm.ctx
+    return rand.float64_range(0.0, math.nextafter_f64(1.0, 2.0))
+
+} 
 
 /// write (JI)V
 write_byte :: proc "c" (fd: os.Handle, b: i32) { 

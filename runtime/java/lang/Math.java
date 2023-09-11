@@ -7,4 +7,7 @@ public class Math{
     public static double pow(double a, double b) {
         return 0;
     }
+    public static double random() {
+        return kava.Kava.randomDouble();
+    }
 }
