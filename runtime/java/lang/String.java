@@ -1,6 +1,6 @@
 package java.lang;
 
-public class String {
+public class String implements Comparable<String> {
     private char[] value;
     private int offset;
     private int length;
@@ -110,5 +110,15 @@ public class String {
             res[resi] = sb.toString();
         }
         return res;
+    }
+    public int compareTo(String other) {
+        if(equals(other)) return 0;
+        if(length != other.length) return length - other.length;
+        for(int i = 0; i < length; i++) {
+            if(charAt(i) != other.charAt(i)) {
+                return charAt(i) - other.charAt(i);
+            }
+        }
+        return -1;
     }
 }

@@ -1,6 +1,5 @@
 package java.util;
 import java.io.InputStream;
-import java.lang.NotImplementedException;
 
 public class Scanner {
     private final InputStream stream;
