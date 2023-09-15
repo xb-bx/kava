@@ -87,23 +87,18 @@ main :: proc() {
     odin_build("src/vm", output = KAVA_EXE, collections = collections, additional_args = additional[:])
     odin_build("src/gdbplugin", "gdbplugin.so", collections, additional_args = additional[:], build_mode = .Dynamic)
     
-    if len(args) > 0 && args[0] == "java" {
-        packages := list_files("runtime/java")
-        for pkg in packages {
-            sources := list_files(pkg.fullpath)
-            for source in sources {
-                if filepath.ext(source.fullpath) == ".java" {
-                    run("javac", "-cp", "runtime", source.fullpath)
-                }
-            }
+    javas := make([dynamic]string)
+    list_all_java_files_recursively("runtime", &javas)
+    run("javac", ..javas[:])
+}
+list_all_java_files_recursively :: proc (path: string, acc: ^[dynamic]string) {
+    files := list_files(path)
+    for file in files {
+        if file.is_dir {
+            list_all_java_files_recursively(file.fullpath, acc)
         }
-        packages = list_files("runtime/kava")
-        for source in packages {
-            if filepath.ext(source.fullpath) == ".java" {
-                run("javac", "-cp", "runtime", source.fullpath)
-            }
+        else if filepath.ext(file.fullpath) == ".java" {
+            append(acc, file.fullpath)
         }
-       
     }
-    
 }
