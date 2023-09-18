@@ -15,6 +15,7 @@ import "x86asm:x86asm"
 VM :: struct {
     classpaths: []string,
     classes: map[string]^Class,
+    lambdaclasses: map[string]^Class,
     object: ^Class,
     ctx: runtime.Context,
     gc: ^GC,
@@ -57,6 +58,127 @@ hasFlag :: proc(flags: $T, flag: T) -> bool
     where intrinsics.type_is_enum(T) {
     return cast(int)flags & cast(int)flag > 0
 }
+
+load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemethod: ^Method, closured: []^Class) -> ^Class {
+    using classparser
+    using x86asm
+    lambdaclass, ok := vm.lambdaclasses[target.name]
+    if ok {
+        return lambdaclass
+    }
+    lambdaclass = new(Class)
+    lambdaclass.name = target.name
+    lambdaclass.access_flags = ClassAccessFlags.Public | ClassAccessFlags.Final | ClassAccessFlags.Interface
+    lambdaclass.super_class = vm.object
+    lambdaclass.class_type = ClassType.Class
+    lambdaclass.size_without_header = len(closured) * 8
+    lambdaclass.size = lambdaclass.size_without_header + size_of(ObjectHeader)
+    lambdaclass.interfaces = make([]^Class, 1)
+    lambdaclass.interfaces[0] = interface
+    lambdaclass.fields = make([]Field, len(closured))
+    lambdaclass.instance_fields = make([]^Field, len(closured))
+    offset := i32(size_of(ObjectHeader))
+    for closurefield, i in closured {
+        lambdaclass.fields[i] = Field { offset = offset, name = fmt.aprintf("closure_%1", i), type = closurefield, access_flags = MemberAccessFlags.Private }
+        lambdaclass.instance_fields[i] = &lambdaclass.fields[i]
+        offset += 8
+    }
+    lambdaclass.methods = make([]Method, 1)
+    lambdaclass.class_initializer_called = true
+    targetmethod := Method {} 
+    targetmethod.name = ifacemethod.name
+    targetmethod.descriptor = ifacemethod.descriptor
+    targetmethod.access_flags = MethodAccessFlags.Public | MethodAccessFlags.Final | MethodAccessFlags.Native
+    targetmethod.ret_type = ifacemethod.ret_type
+    targetmethod.args = ifacemethod.args
+    targetmethod.parent = lambdaclass
+    lambdaclass.methods[0] = targetmethod
+    assembler := Assembler{}
+    
+    init_asm(&assembler, false)
+    push(&assembler, rbp)
+    mov(&assembler, rbp, rsp)
+    subsx(&assembler, rsp, size_of(StackEntry))
+
+    locals := make([]i32, len(targetmethod.args) + 1)
+    defer delete(locals)
+    argi := 0
+    offset = -8 - size_of(StackEntry)
+    locals[0] = offset
+    offset -= 8
+    locali := 1
+    for argi < len(targetmethod.args) {
+        arg := targetmethod.args[argi]
+        if is_long_or_double(arg) {
+            argi += 1
+        } 
+        argi += 1
+        locals[locali] = offset
+        offset -= 8
+        locali += 1
+    }
+    lambdaclass.methods[0].code = CodeAttribute { max_stack = u16(len(targetmethod.args) + len(closured)) } 
+    
+    jit_prepare_locals(&lambdaclass.methods[0], locals, &assembler)
+    
+    
+    mov(&assembler, rax, transmute(int)&lambdaclass.methods[0])
+    mov(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, method))), rax)
+    movsx(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(0))
+    mov(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rbp)
+    mov(&assembler, rax, transmute(int)stack_trace_push)
+    mov(&assembler, ODIN_OS == .Windows ? rcx : rdi, rbp)
+    subsx(&assembler, ODIN_OS == .Windows ? rcx : rdi, i32(32))
+    when ODIN_OS == .Windows { subsx(&assembler, rsp, i32(32)) }
+    call(&assembler, rax)
+    when ODIN_OS == .Windows { addsx(&assembler, rsp, i32(32)) }
+
+    subsx(&assembler, rsp, align_size(i32(len(closured) * 8)))
+    ctx := JittingContext {}
+    ctx.vm = vm
+    ctx.method = &lambdaclass.methods[0]
+    ctx.assembler = &assembler
+    ctx.stack_base = offset
+    ctx.stack_count = 0
+
+    assert(len(closured) == 0)
+    argi = 0
+    locali = 1
+    for argi < len(targetmethod.args) {
+        arg := targetmethod.args[argi]
+        if is_long_or_double(arg) {
+            argi += 1
+        } 
+        argi += 1
+        ctx.stack_count += 1
+        mov(&assembler, rax, at(rbp, locals[locali])) 
+        mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
+    }
+    jit_invoke_static_impl(&ctx, target)
+    push(&assembler, rax)
+    push(&assembler, rax)
+    when ODIN_OS == .Windows { subsx(&assembler, rsp, i32(32)) }
+    mov(&assembler, rax, transmute(int)stack_trace_pop)
+    mov(&assembler, parameter_registers[0], transmute(int)vm)
+    call(&assembler, rax)
+    when ODIN_OS == .Windows { addsx(&assembler, rsp, i32(32)) }
+    pop(&assembler, rax)
+    pop(&assembler, rax)
+    mov(&assembler, rsp, rbp)
+    pop(&assembler, rbp)
+    ret(&assembler)
+    
+    lambdaclass.methods[0].jitted_body = alloc_executable(len(assembler.bytes))
+    for b, i in assembler.bytes {
+        lambdaclass.methods[0].jitted_body[i] = b
+    }
+
+
+
+    vm.lambdaclasses[target.name] = lambdaclass    
+    return lambdaclass
+
+}   
 make_array_type :: proc(vm: ^VM, type: ^Class) -> ^Class {
     parts := [?]string {"[", type.name}
     if type.class_type == ClassType.Primitive {
@@ -443,6 +565,8 @@ print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Ha
                 name := resolve_utf8(classfile, name_and_type.name_index)
                 type := resolve_utf8(classfile, name_and_type.descriptor_index)
                 fmt.fprintf(file, "interface method %s.%s:%s", class_name, name, type)
+            case InvokeDynamicInfo:
+                fmt.fprintf(file, "invokedynamic")
             case:
                 fmt.println(const)
                 panic("unimplemented")
@@ -461,7 +585,7 @@ need_to_print_const :: proc(opcode: classparser.Opcode) -> bool {
             .bipush, .sipush, .iinc, .aaload, .aastore, .aconst_null, .goto, .goto_w,
             ._return, .areturn, .ireturn, .lreturn, .freturn, .dreturn, .ifnonnull:
             return false
-        case .invokespecial, .invokestatic, .invokeinterface, .new, .putfield, .putstatic, .newarray, .getfield, .getstatic, .invokevirtual, .ldc, .ldc_w, .ldc2_w, .instanceof,
+        case .invokespecial, .invokestatic, .invokeinterface, .invokedynamic, .new, .putfield, .putstatic, .newarray, .getfield, .getstatic, .invokevirtual, .ldc, .ldc_w, .ldc2_w, .instanceof,
             .multianewarray, .checkcast, .anewarray:
             return true 
         case:

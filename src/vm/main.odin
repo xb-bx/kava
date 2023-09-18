@@ -62,6 +62,7 @@ main :: proc() {
     vm := VM {
         classpaths = classpaths,
         classes = make(map[string]^Class),
+        lambdaclasses = make(map[string]^Class),
         ctx = context,
         gc = gc,
     
@@ -69,6 +70,7 @@ main :: proc() {
     for prim in PrimitiveType {
         make_primitive(&vm, prim, primitive_names[prim], primitive_sizes[prim])
     }
+    load_class(&vm, "java/lang/NullPointerException")
     app := load_class(&vm, application)
     if app.is_err {
         error(app.error.(string))
@@ -78,7 +80,7 @@ main :: proc() {
     time.stopwatch_start(&stopwatch)
     for class_name, class in vm.classes {
         for &method in class.methods {
-            if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native | classparser.MethodAccessFlags.Abstract) {
+            if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native) || hasFlag(method.access_flags, classparser.MethodAccessFlags.Abstract) {
                 continue
             }
             blocks := (split_method_into_codeblocks(&vm, &method))

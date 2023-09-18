@@ -158,6 +158,7 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         method.exception_table[i] = exc
     }
     body := alloc_executable(len(assembler.bytes))
+    assert(body != nil)
     for b, i in assembler.bytes {
         body[i] = b
     }
@@ -310,11 +311,12 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         // push exception object onto the stack
         mov(assembler, at(rbp, stack_base - 8 * stack_count), rdi)
     }
-    for instruction in cb.code {
+    for instruction, i in cb.code {
         when ENABLE_GDB_DEBUGGING {
             append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
             line += print_instruction_with_const(instruction, handle, method.parent.class_file, "")
         }
+//         fmt.println(i, cb.code[i - 1]) 
         assert(stack_count >= 0)
         #partial switch get_instr_opcode(instruction) {
             case .nop:
@@ -450,6 +452,8 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .goto, .goto_w:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 jmp(assembler, labels[start])
+            case .invokedynamic:
+                jit_invoke_dynamic(ctx, instruction)
             case .invokespecial:
                 movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 jit_invoke_special(ctx, instruction)
@@ -998,7 +1002,6 @@ jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, inde
     cmp(assembler, index, i32(0))
     jge(assembler, notoutofbounds)
     set_label(assembler, outofbounds)
-//     int3(assembler)
 
     movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(pc))
 
@@ -1028,6 +1031,45 @@ jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, inde
 }
 is_long_or_double :: proc(class: ^Class) -> bool {
     return class.name == "long" || class.name == "double"
+}
+jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
+    using classparser
+    using x86asm
+//     int3(assembler)
+    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+    invokedynamicinfo := resolve_const(InvokeDynamicInfo, method.parent.class_file, index).(InvokeDynamicInfo)
+    bootstrap_method := method.parent.class_file.bootstrap_methods[invokedynamicinfo.bootstrap_method_attr_index]
+    methodhandle := method.parent.class_file.constant_pool[bootstrap_method.bootstrap_arguments[1] - 1].(classparser.MethodHandleInfo)
+    targetmethod := get_methodrefconst_method(vm, method.parent.class_file, int(methodhandle.reference_index)).value.(^Method)
+    name_and_type := resolve_name_and_type(method.parent.class_file, invokedynamicinfo.name_and_type_index).(NameAndTypeInfo)
+    type := resolve_utf8(method.parent.class_file, name_and_type.descriptor_index)
+    typename := type.(string)
+    index_of_closing := strings.index_any(typename, ")")
+    typename = strings.cut(typename, index_of_closing + 1)
+//                 defer delete(typename)
+    
+    invoketype := load_class(vm, typename).value.(^Class)
+    lambdaclass := vm.lambdaclasses[targetmethod.name]
+    target: ^Method = nil
+    for &method in invoketype.methods {
+        if !hasFlag(method.access_flags, MethodAccessFlags.Static) && hasFlag(method.access_flags, MethodAccessFlags.Abstract) {
+            target = &method 
+            break
+        }
+    }
+    closured :=  len(targetmethod.args) - len(target.args)
+    assert(closured == 0)
+    stack_count -= i32(closured)
+    stack_count += 1
+    
+    mov(assembler, parameter_registers[0], transmute(int)vm)
+    mov(assembler, parameter_registers[1], transmute(int)lambdaclass)
+    lea(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
+    movsx(assembler, parameter_registers[3], -1)
+    when ODIN_OS == .Windows { subsx(assembler, rsp, 32) }
+    mov(assembler, rax, transmute(int)gc_alloc_object)
+    call(assembler, rax)
+    when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
 }
 jit_invoke_interface:: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1

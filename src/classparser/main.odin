@@ -312,6 +312,13 @@ AttributeInfo :: struct {
     name_index: u16,
     info: []u8,
 }
+BootstrapMethod :: struct {
+    bootstrap_method_ref: u16,
+    bootstrap_arguments: []u16,
+}
+BootstrapMethodsAttribute :: struct {
+    methods: []BootstrapMethod,
+}
 ClassFile :: struct {
     minor_version : u16,
     major_version : u16,
@@ -323,6 +330,7 @@ ClassFile :: struct {
     fields: []FieldInfo,
     methods: []MethodInfo,
     attributes: []AttributeInfo,
+    bootstrap_methods: []BootstrapMethod,
 }
 ConstantPoolInfo :: union {
     ClassInfo,
@@ -339,6 +347,7 @@ ConstantPoolInfo :: union {
     StoopitJava8ByteConstantTakeTwoPlacesInConstantPool,
     MethodHandleInfo,
     MethodTypeInfo,
+    InvokeDynamicInfo,
 
 }
 InvokeDynamicInfo :: struct {
@@ -771,6 +780,25 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
                     utf8bytes[i] = b.(u8)
                 }
                 class.constant_pool[i] = UTF8Info { str = strings.clone_from_bytes(utf8bytes) }
+            case 16:
+                descriptor_index := read_u16_be(&reader)
+                if descriptor_index == nil {
+                    result = Err(ClassFile, "Invalid class file") 
+					return result 
+                }
+                class.constant_pool[i] = MethodTypeInfo { descriptor_index = descriptor_index.(u16) }
+            case 18:
+                bootstrap_method_attr_index := read_u16_be(&reader)
+                if bootstrap_method_attr_index == nil {
+                    result = Err(ClassFile, "Invalid class file") 
+					return result 
+                }
+                name_and_type_index := read_u16_be(&reader)
+                if name_and_type_index == nil {
+                    result = Err(ClassFile, "Invalid class file") 
+					return result 
+                }
+                class.constant_pool[i] = InvokeDynamicInfo { bootstrap_method_attr_index = bootstrap_method_attr_index.(u16), name_and_type_index = name_and_type_index.(u16) }
             case: 
                 fmt.println(b)
                 panic("")
@@ -913,6 +941,45 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
         }
         class.attributes[attri] = attr.(AttributeInfo)
     }
+
+    bootstrap_methods_attr := find_attr(&class, class.attributes, "BootstrapMethods")
+    if bootstrap_methods_attr != nil {
+        attr := bootstrap_methods_attr.(AttributeInfo)
+        attr_reader := Reader { bytes = attr.info, position = 0 }
+        methods_num := read_u16_be(&attr_reader)
+        if methods_num == nil {
+            result = Err(ClassFile, "Invalid class file")
+			return result 
+        }
+        bootstrap_methods := make([]BootstrapMethod, methods_num.(u16))  
+        for i in 0..<methods_num.(u16) {
+            bootstrap_method := BootstrapMethod{}
+            method_ref := read_u16_be(&attr_reader)
+            if method_ref == nil {
+                result = Err(ClassFile, "Invalid class file")
+                return result 
+            }
+            bootstrap_method.bootstrap_method_ref = method_ref.(u16)
+            args_num := read_u16_be(&attr_reader)
+            if args_num == nil {
+                result = Err(ClassFile, "Invalid class file")
+                return result 
+            }
+            bootstrap_method.bootstrap_arguments = make([]u16, args_num.(u16))
+            for i in 0..<len(bootstrap_method.bootstrap_arguments) {
+                arg := read_u16_be(&attr_reader)
+                if arg == nil {
+                    result = Err(ClassFile, "Invalid class file")
+                    return result 
+                }
+                bootstrap_method.bootstrap_arguments[i] = arg.(u16)
+            }
+            bootstrap_methods[i] = bootstrap_method
+        }
+        class.bootstrap_methods = bootstrap_methods
+    }
+    
+
 
     for method,i in class.methods {
         codeattr := find_attr(&class, method.attributes, "Code")
@@ -1348,7 +1415,15 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
     }
     return shared.Ok(string, instructions[:])    
 }
-
+resolve_const :: proc($T: typeid, class: ^ClassFile, index: int) -> Maybe(T) {
+    if cast(int)index <= len(class.constant_pool) && index != 0 {
+        cl, isok := class.constant_pool[index - 1].(T)
+        if isok {
+            return cl
+        }
+    }
+    return nil
+}
 resolve_name_and_type :: proc(class: ^ClassFile, index: u16) -> Maybe(NameAndTypeInfo) {
     if cast(int)index <= len(class.constant_pool) && index != 0 {
         cl, isok := class.constant_pool[index - 1].(NameAndTypeInfo)
@@ -1478,6 +1553,23 @@ print_class_info :: proc(class: ClassFile) {
 
                 fmt.printf("#%i interface method: %s.%s:%s\n", i + 1, class_name.str, name.str, type.str)
             case StoopitJava8ByteConstantTakeTwoPlacesInConstantPool:
+            case InvokeDynamicInfo:
+                invoke := info.(InvokeDynamicInfo)
+                bootstrap_method := class.bootstrap_methods[invoke.bootstrap_method_attr_index]
+                name_and_type := class.constant_pool[invoke.name_and_type_index-1].(NameAndTypeInfo)
+                name := class.constant_pool[name_and_type.name_index - 1].(UTF8Info)
+                type := class.constant_pool[name_and_type.descriptor_index - 1].(UTF8Info)
+                fmt.printf("#%i invokedynamic info %s:%s\n", i+1, name.str, type.str)
+            case MethodHandleInfo:
+                handle := info.(MethodHandleInfo)
+                fmt.printf("#%i methodhandle info %s\n", i+1, handle.reference_kind)
+            case MethodTypeInfo:
+                type := info.(MethodTypeInfo) 
+                descriptor := class.constant_pool[type.descriptor_index - 1].(UTF8Info).str
+                fmt.printf("#%i methodtype info %s\n", i+1, descriptor)
+                
+                
+        
             case:
                 fmt.println(info)
                 panic("")

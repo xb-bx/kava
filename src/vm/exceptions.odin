@@ -61,7 +61,7 @@ throw_impl :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
     }
         
     toString := transmute(proc "c" (^ObjectHeader) -> ^ObjectHeader)(jit_resolve_virtual(vm, exc, find_method(vm.classes["java/lang/Object"], "toString", "()Ljava/lang/String;"))^)    
-    assert(toString != nil)
+//     assert(toString != nil)
     str := toString(exc)
     msg := exc.class.name
     if str != nil {

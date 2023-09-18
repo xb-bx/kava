@@ -1,6 +1,7 @@
 package vm
 import "kava:classparser"
 import "kava:shared"
+import "core:strings"
 import "core:slice"
 import "core:fmt"
 import "core:os"
@@ -315,9 +316,18 @@ is_stacktype_subtype_of :: proc(subtype: ^StackType, parent: ^Class) -> bool {
     if subtype.is_null {
         return true
     }
-    else {
+    else if !hasFlag(parent.access_flags, classparser.ClassAccessFlags.Interface) {
         return is_subtype_of(subtype.class, parent)        
     }
+    else {
+        for interface in subtype.class.interfaces {
+            if interface == parent {
+                return true
+            }
+        }
+    }
+    return false
+    
 }
 is_subtype_of :: proc(subtype: ^Class, parent: ^Class) -> bool {
     if subtype.super_class == parent {
@@ -478,21 +488,14 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected reference-type", this_method, instr)
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if locals[index] == nil {
-                    locals[index] = t.class
-                }
-                else if !is_stacktype_subtype_of(t, locals[index]) && t.class != locals[index] {
-                    return verification_error("Invalid bytecode. Wrong value type", this_method, instr)
-                }
+                locals[index] = t.class
             case .dstore:
                 t := stack_pop_class(stack)
                 if t == nil || t.name != "double" {
                     return verification_error("Invalid bytecode. Expected integer on stack before istore operation", this_method, instr)
                 }
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if locals[index] == nil {
-                    locals[index] = t
-                }
+                locals[index] = t
             case .dload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 if index >= len(locals) || locals[index].name != "double" {
@@ -824,7 +827,62 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Wrong exception type", this_method, instr)
                 }
                 canEscape = false
-                
+            case .invokedynamic:
+                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
+                invokedynamicinfo := resolve_const(InvokeDynamicInfo, this_method.parent.class_file, index)
+                if invokedynamicinfo == nil {
+                    return verification_error("Invalid bytecode", this_method, instr)
+                }
+                bootstrap_method := this_method.parent.class_file.bootstrap_methods[invokedynamicinfo.(InvokeDynamicInfo).bootstrap_method_attr_index]
+                assert(len(bootstrap_method.bootstrap_arguments) == 3)
+                handle := this_method.parent.class_file.constant_pool[bootstrap_method.bootstrap_arguments[1] - 1].(classparser.MethodHandleInfo)
+                if handle.reference_kind != BytecodeBehaivour.REF_invokeStatic {
+                    return verification_error("Unsupported", this_method, instr)
+                }
+                methodres := get_methodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
+                if methodres.is_err {
+                    return verification_error(methodres.error.(string), this_method, instr)
+                }
+                method := methodres.value.(^Method)
+                name_and_type := resolve_name_and_type(this_method.parent.class_file, invokedynamicinfo.(InvokeDynamicInfo).name_and_type_index)
+                if name_and_type == nil {
+                    return verification_error("Invalid bytecode", this_method, instr)
+                }
+                type := resolve_utf8(this_method.parent.class_file, name_and_type.(NameAndTypeInfo).descriptor_index)
+                typename := type.(string)
+                index_of_closing := strings.index_any(typename, ")")
+                typename = strings.cut(typename, index_of_closing + 1)
+//                 defer delete(typename)
+                typeres := load_class(vm, typename)
+                if typeres.is_err {
+                    return verification_error(typeres.error.(string), this_method, instr)
+                }
+                invoketype := typeres.value.(^Class)
+                target: ^Method = nil
+                for &method in invoketype.methods {
+                    if !hasFlag(method.access_flags, MethodAccessFlags.Static) && hasFlag(method.access_flags, MethodAccessFlags.Abstract) {
+                        target = &method 
+                        break
+                    }
+                }
+                if target == nil {
+                    return verification_error("Invalid bytecode", this_method, instr)
+                }
+                closured :=  len(method.args) - len(target.args)
+                if stack.count < closured {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                closure := make([]^Class, closured)
+//                 defer delete(closure)
+                i := closured - 1
+                for i >= 0 {
+                    t := stack_pop_class(stack)
+                    assert(t != nil)
+                    closure[i] = t
+                    i -= 1
+                }
+                lambdaclass := load_lambda_class(vm, method, invoketype, target, closure)
+                assert(stack_push(stack, lambdaclass))
             case .invokestatic:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 methodres := get_methodrefconst_method(vm, this_method.parent.class_file, index)
@@ -849,6 +907,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                         return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                     }
                     if typ.class != arg && !is_stacktype_subtype_of(typ, arg) && !(type_is_integer(typ.class) && type_is_integer(arg)) {
+                        fmt.println(typ.class.name, arg.name)
                         return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
                     if typ.class.name == "double" || typ.class.name == "long" {
