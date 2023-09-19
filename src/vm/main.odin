@@ -70,30 +70,12 @@ main :: proc() {
     for prim in PrimitiveType {
         make_primitive(&vm, prim, primitive_names[prim], primitive_sizes[prim])
     }
-    load_class(&vm, "java/lang/NullPointerException")
     app := load_class(&vm, application)
     if app.is_err {
         error(app.error.(string))
     }
     initialize_kava(&vm)
     stopwatch := time.Stopwatch {}
-    time.stopwatch_start(&stopwatch)
-    for class_name, class in vm.classes {
-        for &method in class.methods {
-            if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native) || hasFlag(method.access_flags, classparser.MethodAccessFlags.Abstract) {
-                continue
-            }
-            blocks := (split_method_into_codeblocks(&vm, &method))
-            if blocks.is_err {
-                print_verification_error(blocks.error.(VerificationError))
-                error("")
-            }
-            jit_method(&vm, &method, blocks.value.([]CodeBlock))
-        }
-    }
-    time.stopwatch_stop(&stopwatch)
-    dur := time.stopwatch_duration(stopwatch)
-    fmt.println("JIT took", dur)
 
     for name, class in vm.classes {
         initializer := find_method(class, "<clinit>", "()V")
@@ -122,7 +104,7 @@ main :: proc() {
     time.stopwatch_start(&stopwatch)
     ((transmute(proc "c" (args: ^ArrayHeader))mainMethod.jitted_body))(args_array)
     time.stopwatch_stop(&stopwatch)
-    dur = time.stopwatch_duration(stopwatch)
+    dur := time.stopwatch_duration(stopwatch)
     fmt.println("Execution took", dur)
 
 //     for k,v in vm.classes {

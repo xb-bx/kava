@@ -225,3 +225,6 @@ alloc_executable :: proc(size: uint) -> [^]u8 {
     base := transmute([^]u8)unix.sys_mmap(nil, size, unix.PROT_READ | unix.PROT_EXEC | unix.PROT_WRITE, unix.MAP_ANONYMOUS | unix.MAP_PRIVATE, -1, 0)
     return base
 }
+free_executable :: proc(ptr: [^]u8, size: uint) {
+    assert(unix.sys_munmap(rawptr(ptr), size) == 0)
+}

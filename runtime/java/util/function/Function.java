@@ -1,15 +1,16 @@
 package java.util.function;
 import java.lang.NotImplementedException;
+@FunctionalInterface
 public interface Function<T, R> {
-    default <V> Function<R, V> andThen(Function<? super R, ? extends V> after) {
-        throw new NotImplementedException();
+    default <V> Function<T, V> andThen(Function<? super R, ? extends V> after) {
+        return (T t) -> after.apply(apply(t));
     }
     R apply(T t);
     default <V> Function<V,R> compose(Function<? super V,? extends T> before) {
-        throw new NotImplementedException();
+        return (V v) -> apply(before.apply(v));
     }
     static <T> Function<T,T> identity() {
-        throw new NotImplementedException();
+        return t -> t;
     }
 
 }

@@ -62,12 +62,14 @@ hasFlag :: proc(flags: $T, flag: T) -> bool
 load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemethod: ^Method, closured: []^Class) -> ^Class {
     using classparser
     using x86asm
-    lambdaclass, ok := vm.lambdaclasses[target.name]
+    name := fmt.aprintf("%s$%s",target.parent.name, target.name)
+    lambdaclass, ok := vm.lambdaclasses[name]
     if ok {
+        delete(name)
         return lambdaclass
     }
     lambdaclass = new(Class)
-    lambdaclass.name = target.name
+    lambdaclass.name = name
     lambdaclass.access_flags = ClassAccessFlags.Public | ClassAccessFlags.Final | ClassAccessFlags.Interface
     lambdaclass.super_class = vm.object
     lambdaclass.class_type = ClassType.Class
@@ -96,6 +98,7 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
     assembler := Assembler{}
     
     init_asm(&assembler, false)
+//     int3(&assembler)
     push(&assembler, rbp)
     mov(&assembler, rbp, rsp)
     subsx(&assembler, rsp, size_of(StackEntry))
@@ -117,7 +120,7 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
         offset -= 8
         locali += 1
     }
-    lambdaclass.methods[0].code = CodeAttribute { max_stack = u16(len(targetmethod.args) + len(closured)) } 
+    lambdaclass.methods[0].code = CodeAttribute { max_stack = u16(len(targetmethod.args) + len(closured)) + 1 } 
     
     jit_prepare_locals(&lambdaclass.methods[0], locals, &assembler)
     
@@ -133,7 +136,6 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
     call(&assembler, rax)
     when ODIN_OS == .Windows { addsx(&assembler, rsp, i32(32)) }
 
-    subsx(&assembler, rsp, align_size(i32(len(closured) * 8)))
     ctx := JittingContext {}
     ctx.vm = vm
     ctx.method = &lambdaclass.methods[0]
@@ -141,9 +143,14 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
     ctx.stack_base = offset
     ctx.stack_count = 0
 
-    assert(len(closured) == 0)
     argi = 0
     locali = 1
+    for instance_field in lambdaclass.instance_fields {
+        ctx.stack_count += 1
+        mov(&assembler, rax, at(rbp, locals[0]))
+        mov(&assembler, rax, at(rax, instance_field.offset))
+        mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
+    }
     for argi < len(targetmethod.args) {
         arg := targetmethod.args[argi]
         if is_long_or_double(arg) {
@@ -153,17 +160,18 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
         ctx.stack_count += 1
         mov(&assembler, rax, at(rbp, locals[locali])) 
         mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
+        locali += 1
     }
     jit_invoke_static_impl(&ctx, target)
-    push(&assembler, rax)
-    push(&assembler, rax)
+    
     when ODIN_OS == .Windows { subsx(&assembler, rsp, i32(32)) }
     mov(&assembler, rax, transmute(int)stack_trace_pop)
     mov(&assembler, parameter_registers[0], transmute(int)vm)
     call(&assembler, rax)
     when ODIN_OS == .Windows { addsx(&assembler, rsp, i32(32)) }
-    pop(&assembler, rax)
-    pop(&assembler, rax)
+    if ctx.stack_count != 0 {
+        mov(&assembler, rax, at(rbp, ctx.stack_base - 8 * ctx.stack_count))
+    } 
     mov(&assembler, rsp, rbp)
     pop(&assembler, rbp)
     ret(&assembler)
@@ -175,7 +183,7 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
 
 
 
-    vm.lambdaclasses[target.name] = lambdaclass    
+    vm.lambdaclasses[lambdaclass.name] = lambdaclass    
     return lambdaclass
 
 }   
@@ -389,6 +397,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 }
                 meth.parent = class
                 class.methods[i] = meth
+                prepare_lazy_bootstrap(vm, &class.methods[i])
 
                 
             }
@@ -408,6 +417,33 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
         }
     }
     return Err(^Class, fmt.aprintf("Could not find class %s", class_name))
+}
+prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
+    using x86asm
+    assembler := Assembler {}
+    init_asm(&assembler, false)
+    defer delete_asm(&assembler)
+    subsx(&assembler, rsp, 8)
+    for reg in parameter_registers {
+        push(&assembler, reg)
+    }
+    mov(&assembler, parameter_registers[0], transmute(int)vm)
+    mov(&assembler, parameter_registers[1], transmute(int)method)
+    mov(&assembler, rax, transmute(int)jit_method_lazy)
+    when ODIN_OS == .Windows { subsx(&assembler, 32) }
+    call(&assembler, rax)
+    when ODIN_OS == .Windows { addsx(&assembler, 32) }
+    regi := len(parameter_registers) - 1
+    for regi >= 0 {
+        pop(&assembler, parameter_registers[regi])
+        regi -= 1
+    }
+    addsx(&assembler, rsp, 8)
+    jmp(&assembler, rax)
+    method.jitted_body = alloc_executable(LAZY_LENGTH)
+    for b, i in assembler.bytes {
+        method.jitted_body[i] = b
+    }
 }
 parse_method_descriptor :: proc(vm: ^VM, method: ^Method, descriptor: string) -> Maybe(string) {
     if len(descriptor) < 2 {

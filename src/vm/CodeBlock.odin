@@ -191,6 +191,41 @@ find_instr_by_offset :: proc(instructions: []classparser.Instruction, off: int) 
 
     return nil, 0
 }
+get_interfacemethodrefconst_method :: proc(vm: ^VM, classfile: ^classparser.ClassFile, index: int) -> shared.Result(^Method, string) {
+    using shared
+    using classparser
+    methodr := resolve_const(InterfaceMethodRefInfo, classfile, index)
+    if methodr == nil {
+        return Err(^Method, "Invalid bytecode")
+    }
+    methodref := methodr.(InterfaceMethodRefInfo)
+    class_name := resolve_class_name(classfile, methodref.class_index)
+    if class_name == nil {
+        return Err(^Method, "Invalid bytecode")
+    }
+    name_and_type := resolve_name_and_type(classfile, methodref.name_and_type_index)
+    if name_and_type == nil {
+        return Err(^Method, "Invalid bytecode")
+    }
+    name := resolve_utf8(classfile, name_and_type.(NameAndTypeInfo).name_index)
+    if name == nil {
+        return Err(^Method, "Invalid bytecode")
+    }
+
+    descriptor := resolve_utf8(classfile, name_and_type.(NameAndTypeInfo).descriptor_index)
+    if descriptor == nil {
+        return Err(^Method, "Invalid bytecode")
+    }
+    type := load_class(vm, class_name.(string))
+    if type.is_err {
+        return Err(^Method, type.error.(string))
+    }    
+    method := find_method_virtual(type.value.(^Class), name.(string), descriptor.(string))
+    if method == nil {
+        return Err(^Method, fmt.aprintf("Failed to find method %s.%s:%s", class_name.(string), name.(string), descriptor.(string)))
+    }
+    return Ok(string, method) 
+}
 get_methodrefconst_method :: proc(vm: ^VM, classfile: ^classparser.ClassFile, index: int) -> shared.Result(^Method, string) {
     using shared
     using classparser
@@ -831,22 +866,31 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 invokedynamicinfo := resolve_const(InvokeDynamicInfo, this_method.parent.class_file, index)
                 if invokedynamicinfo == nil {
-                    return verification_error("Invalid bytecode", this_method, instr)
+                    return verification_error("Invalid bytecode0", this_method, instr)
                 }
                 bootstrap_method := this_method.parent.class_file.bootstrap_methods[invokedynamicinfo.(InvokeDynamicInfo).bootstrap_method_attr_index]
                 assert(len(bootstrap_method.bootstrap_arguments) == 3)
                 handle := this_method.parent.class_file.constant_pool[bootstrap_method.bootstrap_arguments[1] - 1].(classparser.MethodHandleInfo)
-                if handle.reference_kind != BytecodeBehaivour.REF_invokeStatic {
-                    return verification_error("Unsupported", this_method, instr)
-                }
+//                 if handle.reference_kind != BytecodeBehaivour.REF_invokeStatic {
+//                     fmt.println(handle.reference_kind)
+//                     return verification_error("Unsupported", this_method, instr)
+//                 }
                 methodres := get_methodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
+                method : ^Method = nil
                 if methodres.is_err {
-                    return verification_error(methodres.error.(string), this_method, instr)
+                    imethodres := get_interfacemethodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
+                    if imethodres.is_err {
+                        return verification_error(imethodres.error.(string), this_method, instr)
+                    }
+                    method = imethodres.value.(^Method)
+
                 }
-                method := methodres.value.(^Method)
+                else {
+                    method = methodres.value.(^Method)
+                }
                 name_and_type := resolve_name_and_type(this_method.parent.class_file, invokedynamicinfo.(InvokeDynamicInfo).name_and_type_index)
                 if name_and_type == nil {
-                    return verification_error("Invalid bytecode", this_method, instr)
+                    return verification_error("Invalid bytecode1", this_method, instr)
                 }
                 type := resolve_utf8(this_method.parent.class_file, name_and_type.(NameAndTypeInfo).descriptor_index)
                 typename := type.(string)
@@ -866,7 +910,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     }
                 }
                 if target == nil {
-                    return verification_error("Invalid bytecode", this_method, instr)
+                    return verification_error("Invalid bytecode2", this_method, instr)
                 }
                 closured :=  len(method.args) - len(target.args)
                 if stack.count < closured {

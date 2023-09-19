@@ -89,6 +89,22 @@ jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Hand
     }
     return path, handle
 }
+LAZY_LENGTH :: 128
+jit_method_lazy :: proc "c" (vm: ^VM, method: ^Method) -> [^]u8 {
+    context = vm.ctx
+    res := split_method_into_codeblocks(vm, method)
+
+    if res.is_err {
+        print_verification_error(res.error.(VerificationError))
+        panic("jit failed")
+    }
+    if method.jitted_body != nil {
+//         free_executable(method.jitted_body, LAZY_LENGTH)
+        // TODO: FREE THIS SHIT
+    }
+    jit_method(vm, method, res.value.([]CodeBlock))
+    return method.jitted_body
+}
 jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
     using x86asm 
     assembler := Assembler {}
@@ -1040,7 +1056,14 @@ jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.
     invokedynamicinfo := resolve_const(InvokeDynamicInfo, method.parent.class_file, index).(InvokeDynamicInfo)
     bootstrap_method := method.parent.class_file.bootstrap_methods[invokedynamicinfo.bootstrap_method_attr_index]
     methodhandle := method.parent.class_file.constant_pool[bootstrap_method.bootstrap_arguments[1] - 1].(classparser.MethodHandleInfo)
-    targetmethod := get_methodrefconst_method(vm, method.parent.class_file, int(methodhandle.reference_index)).value.(^Method)
+    targetmethodres := get_methodrefconst_method(vm, method.parent.class_file, int(methodhandle.reference_index))
+    targetmethod : ^Method = nil
+    if targetmethodres.is_err {
+        targetmethod = get_interfacemethodrefconst_method(vm, method.parent.class_file, int(methodhandle.reference_index)).value.(^Method)
+    }
+    else {
+        targetmethod = targetmethodres.value.(^Method)
+    }
     name_and_type := resolve_name_and_type(method.parent.class_file, invokedynamicinfo.name_and_type_index).(NameAndTypeInfo)
     type := resolve_utf8(method.parent.class_file, name_and_type.descriptor_index)
     typename := type.(string)
@@ -1049,7 +1072,7 @@ jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.
 //                 defer delete(typename)
     
     invoketype := load_class(vm, typename).value.(^Class)
-    lambdaclass := vm.lambdaclasses[targetmethod.name]
+    lambdaclass := load_lambda_class(vm, targetmethod, nil, nil, nil)
     target: ^Method = nil
     for &method in invoketype.methods {
         if !hasFlag(method.access_flags, MethodAccessFlags.Static) && hasFlag(method.access_flags, MethodAccessFlags.Abstract) {
@@ -1057,19 +1080,27 @@ jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.
             break
         }
     }
-    closured :=  len(targetmethod.args) - len(target.args)
-    assert(closured == 0)
-    stack_count -= i32(closured)
-    stack_count += 1
-    
+    subsx(assembler, rsp, 16)
     mov(assembler, parameter_registers[0], transmute(int)vm)
     mov(assembler, parameter_registers[1], transmute(int)lambdaclass)
-    lea(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
+    mov(assembler, parameter_registers[2], rsp)
     movsx(assembler, parameter_registers[3], -1)
     when ODIN_OS == .Windows { subsx(assembler, rsp, 32) }
     mov(assembler, rax, transmute(int)gc_alloc_object)
     call(assembler, rax)
     when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
+    mov(assembler, rcx, at(rsp))
+    addsx(assembler, rsp, 16)
+    closured :=  len(targetmethod.args) - len(target.args)
+    fieldi := len(lambdaclass.instance_fields) - 1
+    for fieldi >= 0 {
+        mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
+        mov(assembler, at(rcx, lambdaclass.instance_fields[fieldi].offset), rax)
+        stack_count -= 1
+        fieldi -= 1
+    }
+    stack_count += 1
+    mov(assembler, at(rbp, stack_base - 8 * stack_count), rcx)
 }
 jit_invoke_interface:: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
