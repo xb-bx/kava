@@ -430,9 +430,9 @@ prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
     mov(&assembler, parameter_registers[0], transmute(int)vm)
     mov(&assembler, parameter_registers[1], transmute(int)method)
     mov(&assembler, rax, transmute(int)jit_method_lazy)
-    when ODIN_OS == .Windows { subsx(&assembler, 32) }
+    when ODIN_OS == .Windows { subsx(&assembler, rsp, 32) }
     call(&assembler, rax)
-    when ODIN_OS == .Windows { addsx(&assembler, 32) }
+    when ODIN_OS == .Windows { addsx(&assembler, rsp, 32) }
     regi := len(parameter_registers) - 1
     for regi >= 0 {
         pop(&assembler, parameter_registers[regi])

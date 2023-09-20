@@ -13,11 +13,9 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 parameter_registers := [?]x86asm.Reg64 { x86asm.rcx, x86asm.rdx, x86asm.r8, x86asm.r9 }
-jit_invoke_static :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
+jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
     using x86asm
     
-    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-    target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
     args := count_args(target)
     registers := [?]Reg64 { rcx, rdx, r8, r9 }
     if method.name == "<clinit>" {

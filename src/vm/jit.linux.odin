@@ -143,11 +143,6 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
     }
 
 }
-jit_invoke_static :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
-    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-    target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
-    jit_invoke_static_impl(ctx, target)
-}
 jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
     using x86asm
     

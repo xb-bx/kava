@@ -1102,6 +1102,12 @@ jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.
     stack_count += 1
     mov(assembler, at(rbp, stack_base - 8 * stack_count), rcx)
 }
+
+jit_invoke_static :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
+    index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+    target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
+    jit_invoke_static_impl(ctx, target)
+}
 jit_invoke_interface:: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
     method := get_interface_method(vm, ctx.method.parent.class_file, index).value.(^Method)
