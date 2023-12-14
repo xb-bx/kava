@@ -11,5 +11,6 @@ public class Object {
     public boolean equals(Object other) {
         return this == other;
     }
+    public Class getClass() { return null; }
     
 }

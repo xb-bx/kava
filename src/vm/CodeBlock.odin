@@ -810,7 +810,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 value := stack_pop(stack)
                 index := stack_pop_class(stack)
                 array := stack_pop(stack)
-                if !is_stacktype_subtype_of(value, vm.object) {
+                if !is_stacktype_subtype_of(value, vm.object) && value.class != vm.object {
                     return verification_error("Invalid bytecode. value must be reference type", this_method, instr)
                 }
                 if !type_is_integer(index) {
