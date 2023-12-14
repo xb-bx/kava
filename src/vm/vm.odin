@@ -145,6 +145,12 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
 
     argi = 0
     locali = 1
+    if(!hasFlag(target.access_flags, MethodAccessFlags.Static)) {
+//         int3(&assembler)
+        mov(&assembler, rax, at(rbp, locals[0]))
+        ctx.stack_count += 1
+        mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
+    }
     for instance_field in lambdaclass.instance_fields {
         ctx.stack_count += 1
         mov(&assembler, rax, at(rbp, locals[0]))
@@ -162,7 +168,12 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
         mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
         locali += 1
     }
-    jit_invoke_static_impl(&ctx, target)
+    if(hasFlag(target.access_flags, MethodAccessFlags.Static)) {
+        jit_invoke_static_impl(&ctx, target)
+    }
+    else {
+        jit_invoke_method(&ctx, target, {}, false)
+    }
     
     when ODIN_OS == .Windows { subsx(&assembler, rsp, i32(32)) }
     mov(&assembler, rax, transmute(int)stack_trace_pop)
@@ -562,7 +573,7 @@ print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Ha
     using classparser
     if index > 0 && index <= len(classfile.constant_pool) && need_to_print_const(opcode) {
         const := classfile.constant_pool[index - 1]
-        #partial switch in const {
+        #partial switch _ in const {
             case ClassInfo:
                 name := resolve_class_name(classfile, cast(u16)index)
                 fmt.fprint(file, name)
@@ -632,11 +643,11 @@ need_to_print_const :: proc(opcode: classparser.Opcode) -> bool {
 }
 print_instruction_with_const :: proc(instr: classparser.Instruction, file: os.Handle, class_file: ^classparser.ClassFile, tab: string = "\t") -> int {
     using classparser
-    switch in instr {
+    switch _ in instr {
         case SimpleInstruction: {
             opcode := instr.(SimpleInstruction).opcode
             fmt.fprintf(file, "%s%3i: %s ",tab, instr.(SimpleInstruction).offset, opcode) 
-            switch in instr.(SimpleInstruction).operand {
+            switch _ in instr.(SimpleInstruction).operand {
                 case OneOperand: {
                     print_constant(class_file, instr.(SimpleInstruction).operand.(OneOperand).op, file, opcode)
                     fmt.fprintln(file)

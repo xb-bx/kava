@@ -22,7 +22,7 @@ VerificationError :: struct {
 }
 get_instr_opcode :: proc(instr: classparser.Instruction) -> classparser.Opcode {
     using classparser
-    switch in instr {
+    switch _ in instr {
         case SimpleInstruction:
             return instr.(SimpleInstruction).opcode
         case TableSwitch:
@@ -34,7 +34,7 @@ get_instr_opcode :: proc(instr: classparser.Instruction) -> classparser.Opcode {
 }
 get_instr_offset :: proc(instr: classparser.Instruction) -> int {
     using classparser
-    switch in instr {
+    switch _ in instr {
         case SimpleInstruction:
             return instr.(SimpleInstruction).offset
         case TableSwitch:
@@ -873,6 +873,10 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 handle := this_method.parent.class_file.constant_pool[bootstrap_method.bootstrap_arguments[1] - 1].(classparser.MethodHandleInfo)
 //                 if handle.reference_kind != BytecodeBehaivour.REF_invokeStatic {
 //                     fmt.println(handle.reference_kind)
+//                     fmt.println(this_method.parent.class_file.constant_pool[handle.reference_index - 1])
+//                     md := get_interfacemethodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
+//                     fmt.println(md.value.(^Method).name)
+//                     print_flags(md.value.(^Method).access_flags)
 //                     return verification_error("Unsupported", this_method, instr)
 //                 }
                 methodres := get_methodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
@@ -924,6 +928,9 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     assert(t != nil)
                     closure[i] = t
                     i -= 1
+                }
+                if handle.reference_kind == BytecodeBehaivour.REF_invokeSpecial{
+                    assert(stack_pop(stack) != nil)
                 }
                 lambdaclass := load_lambda_class(vm, method, invoketype, target, closure)
                 assert(stack_push(stack, lambdaclass))
@@ -1503,7 +1510,7 @@ get_constant_type :: proc(vm: ^VM, class_file: ^classparser.ClassFile, index: in
         return Err(^Class, "Invalid bytecode. Constant index outside of constant_pool bounds")
     }    
     const := class_file.constant_pool[index - 1]
-    #partial switch in const {
+    #partial switch _ in const {
         case IntegerInfo:
             return Ok(string, vm.classes["int"])
         case LongInfo:
@@ -1540,7 +1547,7 @@ find_method_block_indices :: proc(vm: ^VM, method: ^Method)-> []int {
     for i < len(instructions) {
         instr := instructions[i]
         i += 1
-        switch in instr {
+        switch _ in instr {
             case SimpleInstruction:
                 sinstr := instr.(classparser.SimpleInstruction)
                 #partial switch sinstr.opcode {

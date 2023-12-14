@@ -1512,7 +1512,7 @@ read_attr :: proc(reader: ^Reader) -> Maybe(AttributeInfo) {
 print_class_info :: proc(class: ClassFile) {
 
     for info,i in class.constant_pool {
-        #partial switch in info {
+        #partial switch _ in info {
             case StringInfo:
                 utf := class.constant_pool[info.(StringInfo).string_index-1].(UTF8Info)
                 fmt.printf("#%i string: \"%s\"\n", i + 1, utf.str)
@@ -1611,10 +1611,10 @@ print_class_info :: proc(class: ClassFile) {
 }
 
 print_instruction :: proc(instr: Instruction, file: os.Handle, tab: string = "\t") -> int {
-    switch in instr {
+    switch _ in instr {
         case SimpleInstruction: {
             fmt.fprintf(file, "%s%3i: %s ",tab, instr.(SimpleInstruction).offset, instr.(SimpleInstruction).opcode) 
-            switch in instr.(SimpleInstruction).operand {
+            switch _ in instr.(SimpleInstruction).operand {
                 case OneOperand: {
                     fmt.fprintln(file, instr.(SimpleInstruction).operand.(OneOperand).op)
                 }

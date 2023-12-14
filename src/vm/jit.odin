@@ -371,7 +371,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count += 1
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 const := method.parent.class_file.constant_pool[index - 1]
-                #partial switch in const {
+                #partial switch _ in const {
                     case DoubleInfo:
                         mov(assembler, rax, transmute(int)const.(classparser.DoubleInfo).value)  
                     case LongInfo:
@@ -415,7 +415,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count += 1
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 const := method.parent.class_file.constant_pool[index - 1]
-                #partial switch in const {
+                #partial switch _ in const {
                     case IntegerInfo:
                         mov(assembler, rax, transmute(int)cast(i64)const.(classparser.IntegerInfo).value)  
                     case StringInfo:
