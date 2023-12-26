@@ -3,14 +3,22 @@ import "core:mem"
 import "core:unicode/utf16"
 import "core:slice"
 import "core:fmt"
+import "kava:classparser"
+import "core:runtime"
+import "core:time"
 
 
-DEFAULT_CHUNK_SIZE :: 1024 * 128 
+DEFAULT_CHUNK_SIZE :: 1024 * 128
 GC_ALLIGNMENT :: 128
 
+ObjectHeaderGCFlags :: enum int {
+    Marked = 0x0001,
+    Frozen = 0x0002,
+}
 ObjectHeader :: struct {
     class: ^Class,
     size: int,
+    flags: ObjectHeaderGCFlags,
 }
 ArrayHeader :: struct {
     obj: ObjectHeader,
@@ -29,20 +37,28 @@ GC :: struct {
     chunks: [dynamic]^Chunk,
     free_places: [dynamic]FreePlace,
     temp_roots: [dynamic]^ObjectHeader,
+    roots: [dynamic]^^ObjectHeader,
 }
 
+gc_total_memory :: proc(using gc: ^GC) -> i64 {
+    sum: i64 = 0
+    for chunk in chunks {
+        sum += i64(chunk.size)
+    }
+    return sum
+}
 gc_find_freeplace :: proc(using gc: ^GC, size: int) -> Maybe(FreePlace) {
     for i in 0..<len(gc.free_places) {
         place := &gc.free_places[i]
-        if place.size == size {
-            res := place^
-            remove_range(&gc.free_places, i, i + 1)
-            return res
-        }
-        else if place.size > size {
+        if place.size > size && place.size - size >= GC_ALLIGNMENT {
             res: FreePlace = { place.chunk, place.offset, size }
             place.offset += size
             place.size -= size
+            return res
+        }
+        else if size == place.size {
+            res := place^
+            remove_range(&gc.free_places, i, i + 1)
             return res
         }
     }
@@ -53,6 +69,8 @@ gc_init :: proc(using gc: ^GC) {
     gc.free_places = {}
     gc.free_places = make([dynamic]FreePlace)
     gc.temp_roots = make([dynamic]^ObjectHeader)
+    gc.roots = make([dynamic]^^ObjectHeader)
+
     gc_new_chunk(gc)
 }
 gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
@@ -60,6 +78,7 @@ gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
     if err != .None {
         panic("Failed to allocate memory")
     }    
+    fmt.println("new chunk", size)
     chunk := new(Chunk)
     chunk.data = data
     chunk.size = size
@@ -68,13 +87,135 @@ gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
     append(&gc.free_places, freeplace)
 }
 
-gc_collect :: proc "c" (gc: ^GC) {
+gc_add_static_fields :: proc(gc: ^GC, class: ^Class) {
+    for &fld in class.fields {
+        if hasFlag(fld.access_flags, classparser.MemberAccessFlags.Static) {
+            append(&gc.roots, transmute(^^ObjectHeader)&fld.static_data)                     
+        }
+    }
+}
+gc_is_ptr_inbounds_of :: proc(chunk: ^Chunk, ptr: rawptr) -> bool {
+    start := transmute(int)chunk.data 
+    end := start + chunk.size
+    iptr := transmute(int)ptr
+    if (iptr - start) % GC_ALLIGNMENT != 0 {
+        return false 
+    }
+    return iptr >= start && iptr < end
+}
+gc_chunk_of_pointer :: proc(gc: ^GC, ptr: rawptr) -> ^Chunk {
+    for chunk in gc.chunks {
+        if(gc_is_ptr_inbounds_of(chunk, ptr)) {
+            return chunk
+        }
+    }
+    return nil
+}
+gc_visit_obj :: proc(gc: ^GC, obj: ^ObjectHeader, class: ^Class = nil) {
+    if hasFlag(obj.flags, ObjectHeaderGCFlags.Marked) { return }
+    obj.flags |= ObjectHeaderGCFlags.Marked
+    class := class
+    if class == nil {
+        class = obj.class
+    }
+    if obj.class.super_class != nil {
+        gc_visit_obj(gc, obj, obj.class.super_class)
+    }
+    if obj.class.class_type == ClassType.Class {
+        for fld in obj.class.fields {
+            if hasFlag(fld.access_flags, classparser.MemberAccessFlags.Static) {
+                continue
+            }
+//             fmt.println("visiting fld", fld.name, fld.type.name)
+            gc_visit_ptr(gc, (transmute(^rawptr)(transmute(int)obj + int(fld.offset)))^)
+        }
+    } else if obj.class.class_type == ClassType.Array {
+        array := transmute(^ArrayHeader)obj  
+        if obj.class.underlaying.class_type == ClassType.Primitive {
+            return
+        } else {
+            for i in 0..<array.length {
+                ptr := transmute([^]rawptr)(transmute(int)array + size_of(ArrayHeader))
+                gc_visit_ptr(gc, ptr[i])
+            }
+        }
+    }
+}
+gc_visit_ptr :: proc(gc: ^GC, root: rawptr) {
+    chunk := gc_chunk_of_pointer(gc, root) 
+    if chunk == nil {
+        return 
+    }
+
+    objheader := transmute(^ObjectHeader)root
+//     fmt.println("success visit ptr", objheader.class.name)
+    gc_visit_obj(gc, objheader)
+}
+gc_visit_roots :: proc(gc: ^GC) {
+    for root in gc.roots {
+        gc_visit_ptr(gc, transmute(rawptr)root^)
+
+    }
+    for root in gc.temp_roots {
+        gc_visit_ptr(gc, transmute(rawptr)root)
+    }
+}
+gc_visit_stack :: proc(gc: ^GC) {
+    e: StackEntry = {}
     
+    for entry in stacktrace {
+        i := entry.rbp - entry.size
+
+        for i < entry.rbp  {
+//             fmt.println("STACK", i, entry.size);
+            gc_visit_ptr(gc, (transmute(^rawptr)i)^) 
+            i += 8
+        }     
+    }
+}
+gc_mark_all_objects :: proc (gc: ^GC) {
+    gc_visit_roots(gc)
+    gc_visit_stack(gc)
+}
+gc_collect :: proc (gc: ^GC) {
+//     stopwatch := time.Stopwatch {}
+//     time.stopwatch_start(&stopwatch)
+    gc_mark_all_objects(gc)
+    for chunk in gc.chunks {
+        prev: ^FreePlace = nil
+        i := 0
+        for i < (chunk.size) {
+            obj := transmute(^ObjectHeader)(transmute(int)chunk.data + i)
+            if(obj.class == nil) {
+                i += GC_ALLIGNMENT
+                continue;
+            }
+            if hasFlag(obj.flags, ObjectHeaderGCFlags.Marked) || hasFlag(obj.flags, ObjectHeaderGCFlags.Frozen) {
+                obj.flags ~= ObjectHeaderGCFlags.Marked
+            }
+            else {
+//                 fmt.println("freed", obj.class.name, obj.size, i, align_size(obj.size))
+                if prev != nil && prev.offset + prev.size == i {
+                    prev.size += align_size(obj.size)
+                }
+                else {
+                    append(&gc.free_places, FreePlace {chunk = chunk, offset = i, size = align_size(obj.size)})
+                    prev = &gc.free_places[len(gc.free_places) - 1]
+                }
+                runtime.mem_zero(obj, align_size(obj.size))
+            }
+            i += align_size(obj.size)
+        }
+    }
+//     time.stopwatch_stop(&stopwatch)
+//     dur := time.duration_nanoseconds(time.stopwatch_duration(stopwatch))
+//     fmt.println("GC took", dur, "ns")
 }
 align_size :: proc (size: $T, alignment := GC_ALLIGNMENT) -> T {
     return size % T(alignment) == 0 ? size : size + T(alignment) - size % T(alignment)
 }
 gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: int = -1) {
+    
     context = vm.ctx
     objsize := align_size(size == -1 ? class.size : size)
     objplace := gc_find_freeplace(vm.gc, objsize)
@@ -132,6 +273,7 @@ gc_alloc_string :: proc "c" (vm: ^VM, str: string, output: ^^ObjectHeader) {
     context = vm.ctx
     array :^ArrayHeader = nil
     gc_alloc_array(vm, vm.classes["char"], len(str), &array) 
+    array.obj.flags |= ObjectHeaderGCFlags.Frozen
     chars_start := transmute(^u16)(transmute(int)array + size_of(ArrayHeader))
     chars := slice.from_ptr(chars_start, len(str))
     for c, i in str {
@@ -139,10 +281,12 @@ gc_alloc_string :: proc "c" (vm: ^VM, str: string, output: ^^ObjectHeader) {
     }
     strobj: ^ObjectHeader = nil
     gc_alloc_object(vm, vm.classes["java/lang/String"], &strobj)
+    if array.obj.class == nil || array.obj.class.class_type != ClassType.Array { panic("ZHOPA")}
     set_object_field(strobj, "value", transmute(int)array)
     set_object_field(strobj, "length", len(chars))
     set_object_field(strobj, "offset", 0)
     output^ = strobj
+    array.obj.flags ~= ObjectHeaderGCFlags.Frozen
 }
 find_field :: proc "c" (class: ^Class, field_name: string) -> ^Field {
     for &field in class.instance_fields {
