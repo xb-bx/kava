@@ -7,7 +7,7 @@ TODO:
 - [ ] standard classes(java.lang.*, java.io.* etc.)
 - [ ] JIT(WIP ~30% done)
 - [ ] JNI
-- [ ] GC
+- [X] GC
 - [ ] Multithreading
 
 Goals:
