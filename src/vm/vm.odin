@@ -424,6 +424,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                     }
                 }
             }
+            gc_add_static_fields(vm.gc, class)
             return Ok(string, class) 
         }
     }

@@ -138,6 +138,9 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         mov(&assembler, r10, transmute(int)&method.parent.class_initializer_called)
         movsx(&assembler, at(r10), i32(1))
     }
+    if method.name == "main" {
+//         int3(&assembler)
+    }
     when ENABLE_GDB_DEBUGGING {
         file, handle := jit_create_bytecode_file_for_method(method)
         jit_context.handle = handle
@@ -423,6 +426,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                         str := resolve_utf8(method.parent.class_file, str_index).(string)
                         strobj :^ObjectHeader= nil
                         gc_alloc_string(vm, str, &strobj)
+                        append(&vm.gc.temp_roots, strobj)
                         mov(assembler, rax, transmute(int)strobj)
                     case:
                         fmt.println(const)
@@ -482,6 +486,15 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .invokevirtual:
                 movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 jit_invoke_virtual(ctx, instruction)
+            case .lrem:
+                stack_count -= 2
+                mov(assembler, rdx, 0)
+                mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                idiv(assembler, r10)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rdx)
             case .irem:
                 stack_count -= 2
                 mov(assembler, edx, 0)
@@ -1200,12 +1213,13 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
     mov(assembler, rbp, rsp)
     subsx(assembler, rsp, i32(size_of(StackEntry)))
     indices := jit_prepare_locals_indices(method, cb)
-    jit_prepare_locals(method, indices, assembler)
+    stack_size := jit_prepare_locals(method, indices, assembler)
 
     mov(assembler, rax, transmute(int)method)
     mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, method))), rax)
     movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(0))
     mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rbp)
+    movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, size))), i32(stack_size + size_of(StackEntry)))
     mov(assembler, rax, transmute(int)stack_trace_push)
     mov(assembler, ODIN_OS == .Windows ? rcx : rdi, rbp)
     subsx(assembler, ODIN_OS == .Windows ? rcx : rdi, i32(32))
@@ -1237,5 +1251,5 @@ StackEntry :: struct {
     method: ^Method,
     pc: int,
     rbp: int,
-    __: int,
+    size: int,
 }

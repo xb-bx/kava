@@ -37,6 +37,27 @@ public class String implements Comparable<String> {
     public static String valueOf(char c) {
         return new String(new char[] {c}, 0, 1);
     }
+    public static String valueOf(long num) { 
+        if(num == 0) return "0";
+        char[] buf = new char[20];
+        int i = 19;
+        boolean isneg = num < 0;
+        num = num < 0 ? -num : num;
+        while(num != 0) {
+            int n = (int)(num % 10);
+            buf[i--] = (char)(n + '0');
+            num /= 10;
+        }
+        if(isneg) {
+            buf[i--] = '-';
+        }
+        
+        String res = new String();
+        res.value = buf;
+        res.offset = i + 1;
+        res.length = 20 - i - 1;
+        return res;
+    }
     public static String valueOf(int num) { 
         if(num == 0) return "0";
         char[] buf = new char[16];

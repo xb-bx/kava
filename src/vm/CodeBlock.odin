@@ -1054,7 +1054,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     }
                 }
             case .lconst_0, .lconst_1:
-                if !stack_push(stack, vm.classes["int"]) {
+                if !stack_push(stack, vm.classes["long"]) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
             case .iconst_0, .iconst_1, .iconst_2, .iconst_3, .iconst_4, .iconst_5, .iconst_m1:

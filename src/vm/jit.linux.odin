@@ -14,7 +14,7 @@ import "core:path/filepath"
 import "core:slice"
 
 parameter_registers := [?]x86asm.Reg64 { x86asm.rdi, x86asm.rsi, x86asm.rdx, x86asm.rcx, x86asm.r8, x86asm.r9 }
-jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) {
+jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) -> int {
     using x86asm
     reg_args_a := [?]Reg64{rdi, rsi, rdx, rcx, r8, r9}
     reg_args := reg_args_a[:]
@@ -65,6 +65,7 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
             mov(assembler, at(rbp, local), rax)
         }
     }
+    return sub_size
 }
 
 jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instruction: classparser.Instruction, virtual_call: bool = true) {

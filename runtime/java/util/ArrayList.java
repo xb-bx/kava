@@ -80,10 +80,32 @@ public class ArrayList<E> implements List<E> {
 //         return true;
     }
     public int indexOf(Object elem) {
-        throw new NotImplementedException();
+        if(elem == null) {
+            for(int i = 0; i < size(); i++) {
+                if(_buffer[i] == null)
+                    return i;
+            }
+        } else {
+            for(int i = 0; i < size(); i++) {
+                if(elem.equals(_buffer[i]))
+                    return i;
+            }
+        }
+        return -1;
     }
     public int lastIndexOf(Object elem) {
-        throw new NotImplementedException();
+        if(elem == null) {
+            for(int i = size() - 1; i >= 0; i--) {
+                if(_buffer[i] == null)
+                    return i;
+            }
+        } else {
+            for(int i = size() - 1; i >= 0; i--) {
+                if(elem.equals(_buffer[i]))
+                    return i;
+            }
+        }
+        return -1;
     }
     public List<E> subList(int from, int to) {
         throw new NotImplementedException();
@@ -101,10 +123,20 @@ public class ArrayList<E> implements List<E> {
         throw new NotImplementedException();
     }
     public boolean removeAll(Collection<?> c) {
-        throw new NotImplementedException();
+        boolean res = false;
+        for(Object e : c)
+        {
+            res |= remove(e);
+        }
+        return res;
     }
     public boolean containsAll(Collection<?> c) {
-        throw new NotImplementedException();
+        for(Object e : c)
+        {
+            if(!contains(e))
+                return false;
+        }
+        return true;
     }
     public boolean contains(Object e) {
         return indexOf(e) != -1; 

@@ -88,6 +88,7 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
         mov(assembler, rax, transmute(int)jit_resolve_virtual)
         subsx(assembler, rsp, i32(32))
         call(assembler, rax)
+        addsx(assembler, rsp, i32(32))
         mov(assembler, r10, rax)
     }
 
@@ -141,7 +142,7 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
 
 }
 
-jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) {
+jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) -> int {
     using x86asm
     reg_args: []Reg64 = nil
     reg_args_a := [?]Reg64 { rcx, rdx, r8, r9 }
@@ -192,6 +193,7 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
             mov(assembler, at(rbp, local), rax)
         }
     }
+    return sub_size
 }
 
 alloc_executable :: proc(size: uint) -> [^]u8 {
