@@ -89,24 +89,40 @@ jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Hand
     }
     return path, handle
 }
-LAZY_LENGTH :: 128
-jit_method_lazy :: proc "c" (vm: ^VM, method: ^Method) -> [^]u8 {
+LAZY_LENGTH :: 512 
+jit_method_lazy :: proc "c" (vm: ^VM, method: ^Method, body_size: ^int = nil) -> [^]u8 {
     context = vm.ctx
+    if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native) {
+        body, ok := vm.natives_table[method]
+        if !ok {
+            fmt.println(method.name, method.descriptor, method.parent.name)
+            print_stack_trace()
+            panic("Unknown native")
+        }
+        return body
+    }
     res := split_method_into_codeblocks(vm, method)
 
     if res.is_err {
         print_verification_error(res.error.(VerificationError))
         panic("jit failed")
     }
+    
     if method.jitted_body != nil {
 //         free_executable(method.jitted_body, LAZY_LENGTH)
         // TODO: FREE THIS SHIT
     }
-    jit_method(vm, method, res.value.([]CodeBlock))
+    size := jit_method(vm, method, res.value.([]CodeBlock))
+    if body_size != nil {
+        body_size^ = size
+    }
     return method.jitted_body
 }
-jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
+vm : ^VM = nil
+jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
     using x86asm 
+    assert(_vm != nil)
+    vm = _vm
     assembler := Assembler {}
     when ODIN_DEBUG {
         init_asm(&assembler, true)
@@ -138,13 +154,14 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         mov(&assembler, r10, transmute(int)&method.parent.class_initializer_called)
         movsx(&assembler, at(r10), i32(1))
     }
-    if method.name == "main" {
+    if method.name == "isSatisfiedBy" && method.parent.name == "java/util/regex/Pattern$5" {
 //         int3(&assembler)
     }
     when ENABLE_GDB_DEBUGGING {
         file, handle := jit_create_bytecode_file_for_method(method)
         jit_context.handle = handle
     }
+    
     for &cb in codeblocks {
         jit_compile_cb(&jit_context, &cb)
     }
@@ -172,7 +189,12 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         exc := ExceptionInfo {} 
         exc.start = cast(int)exception.start_pc
         exc.end = cast(int)exception.end_pc
-        exc.exception = get_class(vm, method.parent.class_file, cast(int)exception.catch_type).value.(^Class)
+        if exception.catch_type == 0 {
+            exc.exception = load_class(vm, "java/lang/Throwable").value.(^Class)
+        }
+        else {
+            exc.exception = get_class(vm, method.parent.class_file, cast(int)exception.catch_type).value.(^Class)
+        }
         exc.offset = labels[cast(int)exception.handler_pc].offset
         method.exception_table[i] = exc
     }
@@ -214,6 +236,7 @@ jit_method :: proc(vm: ^VM, method: ^Method, codeblocks: []CodeBlock) {
         __jit_debug_register_code()
 
     }
+    return len(assembler.bytes)
     
 }
 
@@ -277,29 +300,30 @@ jit_array_load :: proc(using ctx: ^JittingContext, instruction: classparser.Inst
     using x86asm
     stack_count -= 2
     mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-    jit_null_check(assembler, rax, get_instr_offset(instruction))
+    jit_null_check(ctx, rax, get_instr_offset(instruction))
     mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2)))
-    jit_bounds_check(assembler, rax, r10d, get_instr_offset(instruction))
+    jit_bounds_check(ctx, rax, r10d, get_instr_offset(instruction))
+    xor(assembler, r11, r11)
     switch elem_size {
         case 1:
-            mov(assembler, r10b, at(rax, r10, i32(size_of(ArrayHeader)), 1))
+            mov(assembler, r11b, at(rax, r10, i32(size_of(ArrayHeader)), 1))
         case 2:
-            mov(assembler, r10w, at(rax, r10, i32(size_of(ArrayHeader)), 2))
+            mov(assembler, r11w, at(rax, r10, i32(size_of(ArrayHeader)), 2))
         case 4:
-            mov(assembler, r10d, at(rax, r10, i32(size_of(ArrayHeader)), 4))
+            mov(assembler, r11d, at(rax, r10, i32(size_of(ArrayHeader)), 4))
         case 8:
-            mov(assembler, r10, at(rax, r10, i32(size_of(ArrayHeader)), 8))
+            mov(assembler, r11, at(rax, r10, i32(size_of(ArrayHeader)), 8))
     }
     stack_count += 1
-    mov(assembler, at(rbp, stack_base - 8 * stack_count), r10)
+    mov(assembler, at(rbp, stack_base - 8 * stack_count), r11)
 }
 jit_array_store :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction, elem_size: int) {
     using x86asm
     stack_count -= 3
     mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1)))
-    jit_null_check(assembler, rax, get_instr_offset(instruction))
+    jit_null_check(ctx, rax, get_instr_offset(instruction))
     mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2)))
-    jit_bounds_check(assembler, rax, r10d, get_instr_offset(instruction))
+    jit_bounds_check(ctx, rax, r10d, get_instr_offset(instruction))
     mov(assembler, r9, at(rbp, stack_base - 8 * (stack_count + 3)))
     switch elem_size {
         case 1:
@@ -335,10 +359,13 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
             line += print_instruction_with_const(instruction, handle, method.parent.class_file, "")
         }
-//         fmt.println(i, cb.code[i - 1]) 
-        assert(stack_count >= 0)
+        assert(stack_count >= 0 && stack_count <= i32(ctx.method.code.(classparser.CodeAttribute).max_stack))
         #partial switch get_instr_opcode(instruction) {
             case .nop:
+            case .monitorenter:
+                stack_count -= 1
+            case .monitorexit:
+                stack_count -= 1
             case .pop:
                 stack_count -= 1
             case .pop2:
@@ -403,7 +430,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, rsp, rbp)
                 pop(assembler, rbp)
                 ret(assembler)
-            case .ireturn, .areturn:
+            case .ireturn, .areturn, .lreturn:
                 when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
                 mov(assembler, rax, transmute(int)stack_trace_pop)
                 mov(assembler, parameter_registers[0], transmute(int)vm)
@@ -428,6 +455,12 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                         gc_alloc_string(vm, str, &strobj)
                         append(&vm.gc.temp_roots, strobj)
                         mov(assembler, rax, transmute(int)strobj)
+                    case ClassInfo:
+                        class := load_class(vm, method.parent.class_file.constant_pool[const.(classparser.ClassInfo).name_index - 1].(classparser.UTF8Info).str).value.(^Class)
+                        obj := get_class_object(vm, class)
+                        mov(assembler, rax, transmute(int)obj)
+                    case FloatInfo:
+                        mov(assembler, eax, transmute(i32)const.(classparser.FloatInfo).value)
                     case:
                         fmt.println(const)
                         panic("should not happen")
@@ -472,10 +505,11 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .goto, .goto_w:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 jmp(assembler, labels[start])
-            case .invokedynamic:
-                jit_invoke_dynamic(ctx, instruction)
+//             case .invokedynamic:
+//                 jit_invoke_dynamic(ctx, instruction)
             case .invokespecial:
                 movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
+                instr := instruction.(classparser.SimpleInstruction)
                 jit_invoke_special(ctx, instruction)
             case .invokestatic:
                 movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
@@ -490,7 +524,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, rdx, 0)
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
+                jit_div_by_zero_check(ctx, r10, get_instr_offset(instruction))
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 idiv(assembler, r10)
                 stack_count += 1
@@ -499,7 +533,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, edx, 0)
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
+                jit_div_by_zero_check(ctx, r10, get_instr_offset(instruction))
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 idiv(assembler, r10)
                 stack_count += 1
@@ -508,7 +542,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, edx, 0)
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
+                jit_div_by_zero_check(ctx, r10, get_instr_offset(instruction))
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 idiv(assembler, r10d)
                 stack_count += 1
@@ -547,6 +581,30 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 sub(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax)
                 stack_count += 1
+            case .iushr:
+                stack_count -= 2
+                mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                and(assembler, ecx, 0b11111)
+                shr_cl(assembler, eax)
+                mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax) 
+                stack_count += 1
+            case .ishr:
+                stack_count -= 2
+                mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                and(assembler, ecx, 0b11111)
+                sar_cl(assembler, eax)
+                mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax) 
+                stack_count += 1
+            case .ishl:
+                stack_count -= 2
+                mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                and(assembler, ecx, 0b11111)
+                shl_cl(assembler, eax)
+                mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax) 
+                stack_count += 1
             case .lcmp:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
@@ -560,6 +618,15 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 cmovl(assembler, rax, rdx)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+
+            case .lshl:
+                stack_count -= 2
+                mov(assembler, rcx, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                and(assembler, ecx, 0b111111)
+                shl_cl(assembler, rax)
+                mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax) 
+                stack_count += 1
             case .ladd:
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2))) 
@@ -598,7 +665,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, edx, 0)
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 2))) 
-                jit_div_by_zero_check(assembler, r10, get_instr_offset(instruction))
+                jit_div_by_zero_check(ctx, r10, get_instr_offset(instruction))
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 idiv(assembler, r10)
                 stack_count += 1
@@ -610,14 +677,19 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             
             case .putstatic:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-                field := get_fieldrefconst_field(vm, method.parent.class_file, index).value.(^Field)
+                fldclass: ^Class = nil
+                field := get_fieldrefconst_field(vm, method.parent.class_file, index, &fldclass).value.(^Field)
+                jit_ensure_clinit_called(ctx, fldclass)
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, r10, transmute(int)&field.static_data)
                 mov(assembler, at(r10), rax)
+                stack_count -= 1
             case .getstatic:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
             
-                fieldres := get_fieldrefconst_field(vm, method.parent.class_file, index)
+                fldclass: ^Class = nil
+                fieldres := get_fieldrefconst_field(vm, method.parent.class_file, index, &fldclass)
+                jit_ensure_clinit_called(ctx, fldclass)
                 field := fieldres.value.(^Field)
                 
                 mov(assembler, rax, transmute(int)&field.static_data)
@@ -626,21 +698,25 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .putfield:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-                field := get_fieldrefconst_field(vm, method.parent.class_file, index).value.(^Field)
+                fldclass: ^Class = nil
+                field := get_fieldrefconst_field(vm, method.parent.class_file, index, &fldclass).value.(^Field)
+                jit_ensure_clinit_called(ctx, fldclass)
                 offset := field.offset
                 assert(offset != 0)
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 mov(assembler, r10, at(rbp, stack_base - 8 * (stack_count + 1)))
-                jit_null_check(assembler, r10, get_instr_offset(instruction))  
+                jit_null_check(ctx, r10, get_instr_offset(instruction))  
                 mov(assembler, at(r10, field.offset), rax)
             case .getfield:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
-                field := get_fieldrefconst_field(vm, method.parent.class_file, index).value.(^Field)
+                fldclass: ^Class = nil
+                field := get_fieldrefconst_field(vm, method.parent.class_file, index, &fldclass).value.(^Field)
+                jit_ensure_clinit_called(ctx, fldclass)
                 offset := field.offset
                 assert(offset != 0)
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))  
+                jit_null_check(ctx, rax, get_instr_offset(instruction))  
                 mov(assembler, rax, at(rax, offset))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .ifne, .ifnonnull:
@@ -700,12 +776,20 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .i2c:
                 and(assembler, at(rbp, stack_base - 8 * stack_count), 0xffff)
+            case .i2b:
+                and(assembler, at(rbp, stack_base - 8 * stack_count), i32(0xff))
             case .i2s:
                 movsx_mem16(assembler, eax, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
             case .i2d:
                 cvtsi2sd_mem32(assembler, xmm0, at(rbp, stack_base - 8 * stack_count))
                 movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+            case .i2f:
+                cvtsi2ss_mem32(assembler, xmm0, at(rbp, stack_base - 8 * stack_count))
+                movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+            case .f2i:
+                cvttss2si(assembler, eax, at(rbp, stack_base - 8 * stack_count))
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
             case .fdiv:
                 stack_count -= 2
                 movss(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
@@ -754,6 +838,76 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 addsd(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
                 stack_count += 1
                 movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+            case .fcmpl:
+                stack_count -= 2
+                greater := create_label(assembler)
+                less := create_label(assembler)
+                equals := create_label(assembler)
+                endofblock := create_label(assembler)
+                movss(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
+                movss(assembler, xmm1, at(rbp, stack_base - 8 * (stack_count + 2)))
+                movss(assembler, xmm2, xmm0)
+                movss(assembler, xmm3, xmm0)
+                
+                // NaN check
+                cmpordss(assembler, xmm2, xmm1)
+                cvttss2si(assembler, eax, xmm3)
+                cmp(assembler, eax, 0)
+                je(assembler, less)
+
+                cmpnless(assembler, xmm3, xmm1)
+                cvttss2si(assembler, eax, xmm3)
+                cmp(assembler, eax, 0)
+                jne(assembler, greater)
+                cmpltss(assembler, xmm0, xmm1)
+                cvttss2si(assembler, eax, xmm0)
+                cmp(assembler, eax, 0)
+                je(assembler, equals)
+                set_label(assembler, less)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), -1)
+                jmp(assembler, endofblock)
+                set_label(assembler, greater)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 1)
+                jmp(assembler, endofblock)
+                set_label(assembler, equals)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 0)
+                set_label(assembler, endofblock)
+                stack_count += 1
+            case .fcmpg:
+                stack_count -= 2
+                greater := create_label(assembler)
+                less := create_label(assembler)
+                equals := create_label(assembler)
+                endofblock := create_label(assembler)
+                movss(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
+                movss(assembler, xmm1, at(rbp, stack_base - 8 * (stack_count + 2)))
+                movss(assembler, xmm2, xmm0)
+                movss(assembler, xmm3, xmm0)
+                
+                // NaN check
+                cmpordss(assembler, xmm2, xmm1)
+                cvttss2si(assembler, eax, xmm3)
+                cmp(assembler, eax, 0)
+                je(assembler, greater)
+
+                cmpnless(assembler, xmm3, xmm1)
+                cvttss2si(assembler, eax, xmm3)
+                cmp(assembler, eax, 0)
+                jne(assembler, greater)
+                cmpltss(assembler, xmm0, xmm1)
+                cvttss2si(assembler, eax, xmm0)
+                cmp(assembler, eax, 0)
+                je(assembler, equals)
+                set_label(assembler, less)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), -1)
+                jmp(assembler, endofblock)
+                set_label(assembler, greater)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 1)
+                jmp(assembler, endofblock)
+                set_label(assembler, equals)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 0)
+                set_label(assembler, endofblock)
+                stack_count += 1
             case .iinc:
                 
                 ops := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands)
@@ -770,8 +924,14 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .anewarray:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, parameter_registers[0], transmute(int)vm)
-                typ := make_array_type(vm, get_class(vm, method.parent.class_file, index).value.(^Class))
-                mov(assembler, parameter_registers[1], transmute(int)typ)
+                cls := get_class(vm, method.parent.class_file, index).value.(^Class)
+            
+//                 typ := make_array_type(vm, cls)
+//                 fmt.println("TYPE: ", typ.name, ctx.method.name, ctx.method.parent.name, cls.name)
+//                 if cls.name == "java/lang/Object" && method.name == "<init>" && method.parent.name == "java/util/ArrayList" {
+//                     int3(assembler)
+//                 }
+                mov(assembler, parameter_registers[1], transmute(int)cls)
                 mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
                 lea(assembler, parameter_registers[3], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)gc_alloc_array)
@@ -784,8 +944,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 typ := make_primitive(vm, array_type_primitives[index - 4], primitive_names[array_type_primitives[index - 4]], primitive_sizes[array_type_primitives[index - 4]])
                 mov(assembler, reg_args[1], transmute(int)typ)
                 mov(assembler, reg_args[2], at(rbp, stack_base - 8 * stack_count))
-                mov(assembler, reg_args[3], rbp)
-                addsx(assembler, reg_args[3], i32(stack_base - 8 * stack_count))
+                lea(assembler, reg_args[3], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)gc_alloc_array)
                 when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
@@ -793,8 +952,10 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .new:
                 stack_count += 1 
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                new_obj_class := get_class(vm, method.parent.class_file, index).value.(^Class)
                 mov(assembler, reg_args[0], transmute(int)vm)
-                mov(assembler, reg_args[1], transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
+                mov(assembler, reg_args[1], transmute(int)new_obj_class)
+                
                 mov(assembler, reg_args[2], rbp)
                 addsx(assembler, reg_args[2], i32(stack_base - 8 * stack_count))
                 mov(assembler, reg_args[3], transmute(int)cast(int)-1)
@@ -841,16 +1002,21 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .athrow:
+                movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 subsx(assembler, rsp, i32(16))
                 mov(assembler, reg_args[0], transmute(int)vm)
                 mov(assembler, reg_args[1], at(rbp, stack_base - 8 * stack_count)) 
                 mov(assembler, reg_args[2], rsp)
+                lea(assembler, reg_args[3], at(rsp, 8))
                 mov(assembler, rax, transmute(int)throw_impl)
                 when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
                 when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
                 mov(assembler, rdi, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rbp, at(rsp))
+                mov(assembler, r10, rbp)
+                sub(assembler, r10, at(rsp, 8))
+                mov(assembler, rsp, r10)
                 jmp(assembler, rax)
             case .instanceof:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
@@ -875,7 +1041,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
             case .arraylength:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                jit_null_check(assembler, rax, get_instr_offset(instruction))
+                jit_null_check(ctx, rax, get_instr_offset(instruction))
                 mov(assembler, rax, at(rax, cast(i32)offset_of(ArrayHeader, length)))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .lookupswitch:
@@ -914,7 +1080,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
 checkcast :: proc "c" (vm: ^VM, class: ^Class, object: ^ObjectHeader) {
     context = vm.ctx
     if(object == nil) {
-        throw_NullPointerException(vm)
+        return
     }
     if !instanceof(vm, class, object) {
         message := fmt.aprintf("%s cannot be cast to %s", object.class.name, class.name)
@@ -926,12 +1092,13 @@ checkcast :: proc "c" (vm: ^VM, class: ^Class, object: ^ObjectHeader) {
 }
 instanceof :: proc "c" (vm: ^VM, class: ^Class, object: ^ObjectHeader) -> bool {
     context = vm.ctx
-    if(hasFlag(class.access_flags, classparser.ClassAccessFlags.Interface)) {
-        return does_implements_interface(object.class, class)      
-    }
-    else {
-        return class == object.class || is_subtype_of(object.class, class)
-    }
+    return is_subtype_of(object.class, class)
+//     if(hasFlag(class.access_flags, classparser.ClassAccessFlags.Interface)) {
+//         return does_implements_interface(object.class, class)      
+//     }
+//     else {
+//         return class == object.class || is_subtype_of(object.class, class)
+//     }
 }
 d2i :: proc "c" (d: f64) -> i32 {
     return cast(i32)d
@@ -945,14 +1112,14 @@ dmul :: proc "c" (d1: f64, d2: f64) -> f64 {
 dadd :: proc "c" (d1: f64, d2: f64) -> f64 {
     return d1 + d2
 }
-jit_div_by_zero_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int) {
+jit_div_by_zero_check :: proc(using ctx: ^JittingContext, reg: x86asm.Reg64, pc: int) {
     using x86asm
     oklabel := create_label(assembler)
     cmpsx(assembler, reg, i32(0))
     jne(assembler, oklabel)
 
     movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(pc))
-    ariphexc := load_class(vm, "java/lang/AriphmeticException").value.(^Class)
+    ariphexc := load_class(vm, "java/lang/ArithmeticException").value.(^Class)
     ctor := find_method(ariphexc, "<init>", "(Ljava/lang/String;)V")
     msg: ^ObjectHeader = nil
     gc_alloc_string(vm, "/ by zero", &msg)
@@ -961,7 +1128,7 @@ jit_div_by_zero_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, p
     mov(assembler, parameter_registers[0], transmute(int)vm)
     mov(assembler, parameter_registers[1], transmute(int)ariphexc)
     mov(assembler, parameter_registers[2], rsp)
-    mov(assembler, parameter_registers[3], transmute(int)cast(int)-1)
+    mov(assembler, parameter_registers[3], cast(int)-1)
     mov(assembler, rax, transmute(int)gc_alloc_object)
     when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
@@ -990,7 +1157,7 @@ jit_div_by_zero_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, p
     set_label(assembler, oklabel)
     
 }
-jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int) {
+jit_null_check :: proc(using ctx: ^JittingContext, reg: x86asm.Reg64, pc: int) {
     using x86asm
     oklabel := create_label(assembler)
     cmpsx(assembler, reg, i32(0))
@@ -1002,7 +1169,7 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int)
     mov(assembler, parameter_registers[0], transmute(int)vm)
     mov(assembler, parameter_registers[1], transmute(int)load_class(vm, "java/lang/NullPointerException").value.(^Class))
     mov(assembler, parameter_registers[2], rsp)
-    mov(assembler, parameter_registers[3], transmute(int)cast(int)-1)
+    mov(assembler, parameter_registers[3], cast(int)-1)
     mov(assembler, rax, transmute(int)gc_alloc_object)
     when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
@@ -1021,7 +1188,7 @@ jit_null_check :: proc(assembler: ^x86asm.Assembler, reg: x86asm.Reg64, pc: int)
     set_label(assembler, oklabel)
     
 }
-jit_bounds_check :: proc(assembler: ^x86asm.Assembler, array: x86asm.Reg64, index: x86asm.Reg32, pc: int) {
+jit_bounds_check :: proc(using ctx: ^JittingContext, array: x86asm.Reg64, index: x86asm.Reg32, pc: int) {
     using x86asm
     notoutofbounds := create_label(assembler)
     outofbounds := create_label(assembler)
@@ -1119,22 +1286,25 @@ jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.
 jit_invoke_static :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
     target := get_methodrefconst_method(vm, method.parent.class_file, index).value.(^Method)     
+    jit_ensure_clinit_called(ctx, target.parent)
     jit_invoke_static_impl(ctx, target)
 }
-jit_invoke_interface:: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
+jit_invoke_interface:: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
-    method := get_interface_method(vm, ctx.method.parent.class_file, index).value.(^Method)
-    jit_invoke_method(ctx, method, instruction)
+    target_method := get_interface_method(vm, ctx.method.parent.class_file, index).value.(^Method)
+    jit_invoke_method(ctx, target_method, instruction)
 }
-jit_invoke_special :: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
+jit_invoke_special :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op 
-    method := get_methodrefconst_method(vm, ctx.method.parent.class_file, index).value.(^Method)
-    jit_invoke_method(ctx, method, instruction, false)
+    target_method := get_methodrefconst_method(vm, ctx.method.parent.class_file, index).value.(^Method)
+    jit_ensure_clinit_called(ctx, target_method.parent)
+    jit_invoke_method(ctx, target_method, instruction, false)
 }
-jit_invoke_virtual :: proc(ctx: ^JittingContext, instruction: classparser.Instruction) {
+jit_invoke_virtual :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
     index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op 
-    method := get_methodrefconst_method(vm, ctx.method.parent.class_file, index).value.(^Method)
-    jit_invoke_method(ctx, method, instruction)
+    target_method := get_methodrefconst_method(vm, ctx.method.parent.class_file, index).value.(^Method)
+    jit_ensure_clinit_called(ctx, target_method.parent)
+    jit_invoke_method(ctx, target_method, instruction)
 }
 count_args :: proc(method: ^Method) -> i32 {
     argi : i32= 0
@@ -1162,16 +1332,20 @@ jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method
         if class == nil {
             if hasFlag(target.parent.access_flags, ClassAccessFlags.Interface) {
                 if hasFlag(target.access_flags, MethodAccessFlags.Abstract) {
-                    panic("")
+                    throw_exception_string(vm, "java/lang/AbstractMethodError", "")
                 }   
                 return &target.jitted_body
             }
+            fmt.println(is_subtype_of(object.class, target.parent))
             print_flags(target.parent.access_flags)
             fmt.println("\n", target.parent.name)
             print_flags(target.access_flags)
             fmt.println()
-            fmt.println(int(target.access_flags), int(target.parent.access_flags))
-            panic("")
+            fmt.println(target.name)
+            fmt.println(object.class.name)
+            print_stack_trace()
+            fmt.println(transmute(^int)object)
+            throw_exception_string(vm, "java/lang/AbstractMethodError", "")
         }
         found = find_method(class, target.name, target.descriptor)
         if found != nil && hasFlag(found.access_flags, classparser.MethodAccessFlags.Abstract) {
@@ -1230,11 +1404,19 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
 }
 stacktrace := make([dynamic]^StackEntry)
 stack_trace_push :: proc(stack_entry: ^StackEntry) {
+//     for i in 0..<len(stacktrace) {
+//         fmt.print(' ')
+//     }
+//     fmt.println("entered", stack_entry.method.name, stack_entry.method.descriptor, stack_entry.method.parent.name)
     append(&stacktrace, stack_entry)
 }
 stack_trace_pop :: proc "c" (vm: ^VM) -> ^StackEntry {
     context = vm.ctx
     res := stacktrace[len(stacktrace) - 1] 
+//     for i in 0..<len(stacktrace)-1 {
+//         fmt.print(' ')
+//     }
+//     fmt.println("left", res.method.name, res.method.parent.name)
     ordered_remove(&stacktrace, len(stacktrace) - 1) 
     return res
 }

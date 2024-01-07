@@ -154,7 +154,7 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
         sub_size = -cast(int)last
     }
     stack_size := cast(int)method.code.(classparser.CodeAttribute).max_stack * 8
-    sub_size += stack_size
+    sub_size += stack_size + 16
     if sub_size % 16 != 0 {
         sub_size += 8
     }
@@ -207,4 +207,22 @@ alloc_executable :: proc(size: uint) -> [^]u8 {
         panic("Failed to allocate executable memory")
     }
     return data.base
+}
+jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {
+//     if class.paren
+    using x86asm
+    initializer := find_method(class, "<clinit>", "()V")
+    if initializer != nil {
+        already_initialized := create_label(assembler)
+        mov(assembler, rax, transmute(int)&class.class_initializer_called)
+        mov(assembler, al, at(rax))
+        mov(assembler, r10b, u8(0))
+        cmp(assembler, al, r10b)
+        jne(assembler, already_initialized)
+        mov(assembler, rax, transmute(int)initializer.jitted_body)
+        subsx(assembler, rsp, i32(32))
+        call(assembler, rax)
+        addsx(assembler, rsp, i32(32))
+        set_label(assembler, already_initialized)
+    }
 }

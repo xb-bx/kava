@@ -4,5 +4,5 @@ nobuild.odin
 *.class
 odin-zip
 x86asm
-kava_api.generated.odin
+*.generated.odin
 cache/*

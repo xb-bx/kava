@@ -58,11 +58,11 @@ stack_eq :: proc(stack: ^TypeStack, other: ^TypeStack) -> bool {
     if stack.count != other.count {
         return false    
     }
-    for typ, i in stack.types {
-        if i >= stack.count {break}
-        if typ.class != other.types[i].class {
-            return false
-        }
-    }
+//     for typ, i in stack.types {
+//         if i >= stack.count {break}
+//         if typ.class != other.types[i].class || !is_subtype_of(typ.class, other.types[i].class) {
+//             return false
+//         }
+//     }
     return true
 }

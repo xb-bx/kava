@@ -48,6 +48,7 @@ Class :: struct {
     methods: []Method,
     class_file: ^classparser.ClassFile,
     class_type: ClassType,
+    class_object: ^ObjectHeader,
     underlaying: ^Class,
     primitive: PrimitiveType,
     size: int,
@@ -60,3 +61,16 @@ ExceptionInfo :: struct {
     exception: ^Class,
     offset: int,
 }
+get_class_object :: proc(vm: ^VM, class: ^Class) -> ^ObjectHeader {
+    if class.class_object != nil { return class.class_object }
+    context = vm.ctx
+    classobj: ^ObjectHeader = nil
+    append(&vm.gc.temp_roots, classobj)
+    gc_alloc_object(vm, vm.classes["java/lang/Class"], &classobj)
+    gc_alloc_string(vm, class.name, get_object_field_ref(classobj, "name"))
+    class.class_object = classobj
+    (transmute(^^Class)get_object_field_ref(classobj, "handle"))^ = class
+    vm.classobj_to_class_map[classobj] = class
+    return classobj
+}
+

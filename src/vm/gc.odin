@@ -6,9 +6,10 @@ import "core:fmt"
 import "kava:classparser"
 import "core:runtime"
 import "core:time"
+import "core:unicode/utf8"
 
 
-DEFAULT_CHUNK_SIZE :: 1024 * 128
+DEFAULT_CHUNK_SIZE :: 1 * 1024 * 1024
 GC_ALLIGNMENT :: 128
 
 ObjectHeaderGCFlags :: enum int {
@@ -50,17 +51,18 @@ gc_total_memory :: proc(using gc: ^GC) -> i64 {
 gc_find_freeplace :: proc(using gc: ^GC, size: int) -> Maybe(FreePlace) {
     for i in 0..<len(gc.free_places) {
         place := &gc.free_places[i]
-        if place.size > size && place.size - size >= GC_ALLIGNMENT {
+        if size == place.size {
+            res := place^
+            remove_range(&gc.free_places, i, i + 1)
+            return res
+        }
+        else if place.size > size && place.size - size >= GC_ALLIGNMENT {
             res: FreePlace = { place.chunk, place.offset, size }
             place.offset += size
             place.size -= size
             return res
         }
-        else if size == place.size {
-            res := place^
-            remove_range(&gc.free_places, i, i + 1)
-            return res
-        }
+        
     }
     return nil
 }
@@ -74,8 +76,10 @@ gc_init :: proc(using gc: ^GC) {
     gc_new_chunk(gc)
 }
 gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
+    ctx := context
     data, err := mem.alloc(size, GC_ALLIGNMENT)
     if err != .None {
+        fmt.println(ctx.allocator, err, size)
         panic("Failed to allocate memory")
     }    
     fmt.println("new chunk", size)
@@ -112,31 +116,33 @@ gc_chunk_of_pointer :: proc(gc: ^GC, ptr: rawptr) -> ^Chunk {
     return nil
 }
 gc_visit_obj :: proc(gc: ^GC, obj: ^ObjectHeader, class: ^Class = nil) {
-    if hasFlag(obj.flags, ObjectHeaderGCFlags.Marked) { return }
+    if hasFlag(obj.flags, ObjectHeaderGCFlags.Marked) && class == nil { return }
     obj.flags |= ObjectHeaderGCFlags.Marked
     class := class
     if class == nil {
         class = obj.class
     }
-    if obj.class.super_class != nil {
-        gc_visit_obj(gc, obj, obj.class.super_class)
+    if class.super_class != nil {
+        gc_visit_obj(gc, obj, class.super_class)
     }
-    if obj.class.class_type == ClassType.Class {
-        for fld in obj.class.fields {
+    if class.class_type == ClassType.Class {
+        for fld in class.fields {
             if hasFlag(fld.access_flags, classparser.MemberAccessFlags.Static) {
                 continue
             }
 //             fmt.println("visiting fld", fld.name, fld.type.name)
             gc_visit_ptr(gc, (transmute(^rawptr)(transmute(int)obj + int(fld.offset)))^)
         }
-    } else if obj.class.class_type == ClassType.Array {
+    } else if class.class_type == ClassType.Array {
         array := transmute(^ArrayHeader)obj  
-        if obj.class.underlaying.class_type == ClassType.Primitive {
+        if class.underlaying.class_type == ClassType.Primitive {
             return
         } else {
-            for i in 0..<array.length {
-                ptr := transmute([^]rawptr)(transmute(int)array + size_of(ArrayHeader))
-                gc_visit_ptr(gc, ptr[i])
+
+            arrayslice := array_to_slice(rawptr, array)
+            for ptr in arrayslice  {
+//                 ptr := transmute([^]rawptr)(transmute(int)array + size_of(ArrayHeader))
+                gc_visit_ptr(gc, ptr)
             }
         }
     }
@@ -180,6 +186,8 @@ gc_mark_all_objects :: proc (gc: ^GC) {
 gc_collect :: proc (gc: ^GC) {
 //     stopwatch := time.Stopwatch {}
 //     time.stopwatch_start(&stopwatch)
+    if true { return }
+
     gc_mark_all_objects(gc)
     for chunk in gc.chunks {
         prev: ^FreePlace = nil
@@ -208,16 +216,16 @@ gc_collect :: proc (gc: ^GC) {
         }
     }
 //     time.stopwatch_stop(&stopwatch)
-//     dur := time.duration_nanoseconds(time.stopwatch_duration(stopwatch))
-//     fmt.println("GC took", dur, "ns")
+//     dur := time.duration_milliseconds(time.stopwatch_duration(stopwatch))
+//     fmt.println("GC took", dur, "ms")
 }
 align_size :: proc (size: $T, alignment := GC_ALLIGNMENT) -> T {
     return size % T(alignment) == 0 ? size : size + T(alignment) - size % T(alignment)
 }
-gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: int = -1) {
+gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: i32 = -1) {
     
     context = vm.ctx
-    objsize := align_size(size == -1 ? class.size : size)
+    objsize := align_size(size <= -1 ? class.size : int(size))
     objplace := gc_find_freeplace(vm.gc, objsize)
     if objplace == nil {
         gc_collect(vm.gc)
@@ -235,7 +243,7 @@ gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, siz
 
 
     obj := transmute(^ObjectHeader)(transmute(int)objplace.(FreePlace).chunk.data + objplace.(FreePlace).offset)
-    obj.size = size == -1 ? class.size : size
+    obj.size = size <= -1 ? class.size : int(size)
     obj.class = class
     output^ = obj
 }
@@ -265,33 +273,37 @@ gc_alloc_array ::  proc "c" (vm: ^VM, elem_class: ^Class, elems: int, output: ^^
     context = vm.ctx
     array_type := make_array_type(vm, elem_class) 
     array_obj: ^ArrayHeader = nil
-    gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, size_of(ArrayHeader) + elem_class.size * elems)
+    gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, i32(size_of(ArrayHeader) + elem_class.size * elems))
     array_obj.length = elems 
     output^ = array_obj
 }
 gc_alloc_string :: proc "c" (vm: ^VM, str: string, output: ^^ObjectHeader) {
     context = vm.ctx
+    buf := make([]u16, len(str) * 2)
+    defer delete(buf)
+    encoded := utf16.encode_string(buf, str)
+
     array :^ArrayHeader = nil
-    gc_alloc_array(vm, vm.classes["char"], len(str), &array) 
+    gc_alloc_array(vm, vm.classes["char"], encoded, &array) 
     array.obj.flags |= ObjectHeaderGCFlags.Frozen
-    chars_start := transmute(^u16)(transmute(int)array + size_of(ArrayHeader))
-    chars := slice.from_ptr(chars_start, len(str))
-    for c, i in str {
-        chars[i] = cast(u16)c
+    chars := array_to_slice(u16, array)
+    
+    for s, i in buf[:encoded] {
+        chars[i] = s
     }
     strobj: ^ObjectHeader = nil
     gc_alloc_object(vm, vm.classes["java/lang/String"], &strobj)
     if array.obj.class == nil || array.obj.class.class_type != ClassType.Array { panic("ZHOPA")}
     set_object_field(strobj, "value", transmute(int)array)
-    set_object_field(strobj, "length", len(chars))
-    set_object_field(strobj, "offset", 0)
+//     set_object_field(strobj, "length", len(chars))
+//     set_object_field(strobj, "offset", 0)
     output^ = strobj
     array.obj.flags ~= ObjectHeaderGCFlags.Frozen
 }
 find_field :: proc "c" (class: ^Class, field_name: string) -> ^Field {
-    for &field in class.instance_fields {
+    for &field in class.fields {
         if field.name == field_name {
-            return field
+            return &field
         }
     }
     if class.super_class != nil {
@@ -299,13 +311,16 @@ find_field :: proc "c" (class: ^Class, field_name: string) -> ^Field {
     }
     return nil
 }
-get_object_field :: proc "c" (object: ^ObjectHeader, field_name: string) -> int {
+get_object_field_ref :: proc "c" (object: ^ObjectHeader, field_name: string) -> ^^ObjectHeader {
     field := find_field(object.class, field_name)
     if field == nil {
         context = {}
         panic("Unknown field")
     }
-    return (transmute(^int)(transmute(int)object + cast(int)field.offset))^ 
+    return (transmute(^^ObjectHeader)(transmute(int)object + cast(int)field.offset))
+}
+get_object_field :: proc "c" (object: ^ObjectHeader, field_name: string) -> int {
+    return (transmute(^int)get_object_field_ref(object, field_name))^
 }
 array_to_slice :: proc($T: typeid, array: ^ArrayHeader) -> []T {
     return slice.from_ptr(transmute(^T)(transmute(int)array + size_of(ArrayHeader)), array.length)
@@ -314,6 +329,7 @@ set_object_field :: proc(object: ^ObjectHeader, field_name: string, raw_data: in
     field := find_field(object.class, field_name)
     if field == nil {
         context = {}
+        fmt.println(object.class.name, field_name)
         panic("Unknown field")
     }
     (transmute(^int)(transmute(int)object + cast(int)field.offset))^ = raw_data

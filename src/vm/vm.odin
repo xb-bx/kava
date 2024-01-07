@@ -11,6 +11,7 @@ import "core:intrinsics"
 import "core:runtime"
 import "core:sys/windows"
 import "x86asm:x86asm"
+import "core:unicode/utf16"
 
 VM :: struct {
     classpaths: []string,
@@ -19,6 +20,9 @@ VM :: struct {
     object: ^Class,
     ctx: runtime.Context,
     gc: ^GC,
+    natives_table: map[^Method][^]u8,
+    native_intitializers: map[string]proc(),
+    classobj_to_class_map: map[^ObjectHeader]^Class,
 }
 array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {
@@ -59,6 +63,15 @@ hasFlag :: proc(flags: $T, flag: T) -> bool
     return cast(int)flags & cast(int)flag > 0
 }
 
+javaString_to_string :: proc(str: ^ObjectHeader) -> string {
+    charsArray  := transmute(^ArrayHeader)(get_object_field_ref(str, "value")^)
+    chars := array_to_slice(u16, charsArray)
+    utf8_str := make([]u8, len(chars) * 2)
+    defer delete(utf8_str)
+    n := utf16.decode_to_utf8(utf8_str, chars)
+    return strings.clone_from_bytes(utf8_str[:n])
+    
+}
 load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemethod: ^Method, closured: []^Class) -> ^Class {
     using classparser
     using x86asm
@@ -238,6 +251,7 @@ uncompress_if_exists :: proc(zip_file_name: string, file_name: string) -> []u8 {
     }
     err := zip.entry_open(zip_file, file_name)
     if err != .ENONE {
+        fmt.println("no entry", file_name)
         return nil
     }
     bytes:[]u8 = nil
@@ -323,6 +337,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
             if class_name == "java/lang/Object" {
                 vm.object = class
             }
+//     fmt.println("loading", class_name)
             vm.classes[class_name] = class
             name := resolve_class_name(classfile, classfile.this_class)
             if name == nil {
@@ -425,6 +440,8 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 }
             }
             gc_add_static_fields(vm.gc, class)
+            init := vm.native_intitializers[class.name]
+            if init != nil { init() }
             return Ok(string, class) 
         }
     }
@@ -435,17 +452,33 @@ prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
     assembler := Assembler {}
     init_asm(&assembler, false)
     defer delete_asm(&assembler)
+//     int3(&assembler)
     subsx(&assembler, rsp, 8)
     for reg in parameter_registers {
         push(&assembler, reg)
     }
+    mov(&assembler, r10, rsp)
+    subsx(&assembler, rsp, i32(64))
+    for xmmreg in 0..=7 {
+        subsx(&assembler, r10, i32(8))
+        movsd_mem64_xmm(&assembler, at(r10), Xmm(xmmreg))
+    }
     mov(&assembler, parameter_registers[0], transmute(int)vm)
     mov(&assembler, parameter_registers[1], transmute(int)method)
+    mov(&assembler, parameter_registers[2], int(0))
     mov(&assembler, rax, transmute(int)jit_method_lazy)
     when ODIN_OS == .Windows { subsx(&assembler, rsp, 32) }
     call(&assembler, rax)
     when ODIN_OS == .Windows { addsx(&assembler, rsp, 32) }
     regi := len(parameter_registers) - 1
+    xmmreg := 7
+    mov(&assembler, r10, rsp)
+    for xmmreg >= 0{
+        movsd_xmm_mem64(&assembler, Xmm(xmmreg), at(r10))
+        addsx(&assembler, r10, i32(8))
+        xmmreg -= 1
+    }
+    addsx(&assembler, rsp, 64)
     for regi >= 0 {
         pop(&assembler, parameter_registers[regi])
         regi -= 1
@@ -543,13 +576,12 @@ type_descriptor_to_type :: proc(vm: ^VM, descriptor: string) -> (shared.Result(^
 }
 calculate_class_size :: proc(class: ^Class) {
     size := 0 
-    startoffset: i32 = size_of(ObjectHeader)
     if class.super_class != nil && class.super_class.instance_fields != nil && len(class.super_class.instance_fields) > 0 {
         if class.super_class.size == 0 {
             calculate_class_size(class.super_class)
         }
-        startoffset = class.super_class.instance_fields[len(class.super_class.instance_fields) - 1].offset + size_of(rawptr)
     }
+    startoffset := class.super_class == nil ? size_of(ObjectHeader) : i32(class.super_class.size)
     if class.instance_fields != nil {
         for field in class.instance_fields {
             assert(field != nil)
@@ -604,6 +636,8 @@ print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Ha
                 fmt.fprint(file, s)
             case UTF8Info:
                 fmt.fprintf(file, "srcfile")
+            case FloatInfo:
+                fmt.fprintf(file, "float %d", const.(classparser.FloatInfo).value)
             case DoubleInfo:
                 fmt.fprintf(file, "double %d", const.(classparser.DoubleInfo).value)
             case InterfaceMethodRefInfo:

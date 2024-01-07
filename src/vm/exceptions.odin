@@ -24,11 +24,14 @@ throw_exception_strobj :: proc "c" (vm: ^VM, exception_name: string, message: ^O
     nimpl: ^ObjectHeader = nil
     exc := load_class(vm, exception_name)
     gc_alloc_object(vm, exc.value.(^Class), &nimpl) 
-    set_object_field(nimpl, "message", transmute(int)message)
+    set_object_field(nimpl, "detailMessage", transmute(int)message)
     rbp := 0
-    target := throw_impl(vm, nimpl, &rbp)
+    size := 0
+    target := throw_impl(vm, nimpl, &rbp, &size)
     asm(^ObjectHeader) #side_effects #intel { "mov rdi, rax", ":rax" }(nimpl)
     asm(int) #side_effects #intel { "mov rbp, rax", ":rax" }(rbp)
+    asm(int) #side_effects #intel { "mov rsp, rax", ":rax" }(rbp)
+    asm(int) #side_effects #intel { "sub rsp, rax", ":rax" }(size)
     asm(int) #side_effects #intel { "jmp rax", ":rax" }(target)
 
 }
@@ -37,7 +40,7 @@ throw_exception_string :: proc "c" (vm: ^VM, exception_name: string, message: st
     gc_alloc_string(vm, message, &messageobj)
     throw_exception(vm, exception_name, messageobj)
 } 
-throw_impl :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
+throw_impl :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int, size: ^int) -> int {
     context = vm.ctx
     i := len(stacktrace) - 1
     items_to_remove := 0
@@ -45,13 +48,14 @@ throw_impl :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
         entry := stacktrace[i]
         table := entry.method.exception_table
         for exception in table {
-            if exception.exception == exc.class ||  is_subtype_of(exc.class, exception.exception) {
+        if exception.exception == exc.class || is_subtype_of(exc.class, exception.exception) {
                 if entry.pc >= exception.start && entry.pc <= exception.end {
                     if items_to_remove > 0 {
                         start := len(stacktrace) - items_to_remove
                         remove_range(&stacktrace, start, start + items_to_remove)
                     }
                     old_rbp^ = entry.rbp
+                    size^ = entry.size
                     return transmute(int)entry.method.jitted_body + exception.offset 
                 }
             }
@@ -60,16 +64,26 @@ throw_impl :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int) -> int {
         i -= 1
     }
         
+// 
     toString := transmute(proc "c" (^ObjectHeader) -> ^ObjectHeader)(jit_resolve_virtual(vm, exc, find_method(vm.classes["java/lang/Object"], "toString", "()Ljava/lang/String;"))^)    
 //     assert(toString != nil)
+    
     str := toString(exc)
-    msg := exc.class.name
-    if str != nil {
-        arr := transmute(^ArrayHeader)get_object_field(str, "value")
-        chars := array_to_slice(u16, arr)
-        msg = strings.clone_from_ptr(transmute(^u8)slice.as_ptr(chars), len(chars) * 2)
-    }
-    fmt.printf("Unhandled exception %s\n", msg)
+    msg := javaString_to_string(str)
+    fmt.println(msg)
+    fmt.println(get_detail(exc))
+    fmt.println(exc.class.name)
     print_stack_trace()
     panic("")
+}
+get_detail :: proc (exc: ^ObjectHeader) -> string {
+    msg := get_object_field_ref(exc, "detailMessage")^
+    if msg != nil {
+        return javaString_to_string(msg)
+    }
+    cause := get_object_field_ref(exc, "cause")^
+    if cause != nil && exc != cause {
+        return get_detail(cause)
+    }
+    return ""
 }

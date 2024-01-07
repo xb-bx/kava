@@ -771,15 +771,20 @@ read_class_file :: proc(bytes: []u8) -> shared.Result(ClassFile, string) {
                 }
                 utf8bytes:[]u8 = make([]u8, length.(u16))
                 defer delete(utf8bytes)
-                for i in 0..<length.(u16) {
+                for utf8i in 0..<length.(u16) {
                     b = read_byte(&reader)
                     if b == nil {
                         result = Err(ClassFile, "Invalid class file") 
 					    return result 
                     }
-                    utf8bytes[i] = b.(u8)
+                    utf8bytes[utf8i] = b.(u8)
                 }
-                class.constant_pool[i] = UTF8Info { str = strings.clone_from_bytes(utf8bytes) }
+                utfstr := jutf_decode(utf8bytes)
+                if utfstr == nil {
+                    result = Err(ClassFile, "Invalid class file")
+                    return result
+                }
+                class.constant_pool[i] = UTF8Info { str = utfstr.(string) }
             case 16:
                 descriptor_index := read_u16_be(&reader)
                 if descriptor_index == nil {
@@ -1195,7 +1200,19 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 value := transmute(i16)(cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8)) 
                 append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = single_op(int(value))})
                 i += 2
-            case .invokespecial, .putfield, .putstatic, .ldc_w, .ldc2_w, .getstatic, .getfield, .invokevirtual, .invokestatic,
+                case .ldc_w:
+                if i + 2 >= len(bytes) {
+                    result = shared.Err([]Instruction, "Invalid bytecode")
+                    return result
+                }
+                else if next_is_wide {
+                    result = shared.Err([]Instruction, "Invalid opcode after wide prefix")
+                    return result
+                }
+                value: u16 = cast(u16)bytes[i + 2] | (cast(u16)bytes[i + 1] << 8) 
+                append(&instructions, SimpleInstruction { offset = i, opcode = .ldc, operand = single_op_s(value)})
+                i += 2
+            case .invokespecial, .putfield, .putstatic, .ldc2_w, .getstatic, .getfield, .invokevirtual, .invokestatic,
                 .anewarray,
                 .checkcast, .instanceof, .new:
                 if i + 2 >= len(bytes) {
@@ -1350,8 +1367,9 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                 }
                 table := TableSwitch {}
                 table.default = cast(int)default.(u32) + start
-                table.low = cast(int)low.(u32)
-                table.high = cast(int)high.(u32)
+                table.low = cast(int)transmute(i32)low.(u32)
+                table.high = cast(int)transmute(i32)high.(u32)
+            
                 table.offsets = make([]int, table.high - table.low + 1)
                 for i in table.low..=table.high {
                     off := read_u32_be(&table_reader)
@@ -1651,6 +1669,80 @@ print_instruction :: proc(instr: Instruction, file: os.Handle, tab: string = "\t
 
     }
     return 0
+}
+
+jutf_decode :: proc(bytes: []u8) -> (res: Maybe(string)) {
+    using strings
+    buf := strings.Builder {}
+    builder_init(&buf)
+    defer if res == nil { builder_destroy(&buf) }
+
+    i := 0
+    
+    for i < len(bytes) {
+        if bytes[i] == 0 {
+			// a short NUL, valid and reasonable except this is Java UTF-8.
+			return nil 
+		} else if bytes[i] < 0x80 {
+			write_byte(&buf, bytes[i])
+			i += 1
+		} else if bytes[i]&0xe0 == 0xc0 {
+			// 2 bytes
+			if i+1 >= len(bytes) {
+				return nil
+			}
+
+			if bytes[i] == 0xc0 && bytes[i+1] == 0x80 {
+				// "overlong" null
+				write_byte(&buf, 0)
+			} else {
+				// copy
+				write_byte(&buf, bytes[i])
+				write_byte(&buf, bytes[i+1])
+			}
+
+			i += 2
+		} else if bytes[i]&0xf0 == 0xe0 {
+			// 3 bytes
+			if i+2 >= len(bytes) {
+				return nil
+			}
+
+			// surrogate pair, first codepoint
+			if bytes[i] == 0xed && bytes[i+1] >= 0xa0 && bytes[i+1] <= 0xaf {
+				// must be followed by a 3 byte codepoint
+				if i+5 >= len(bytes) {
+					return nil
+				}
+
+				// make sure the next codepoint is part of the surrogate pair
+				if bytes[i+3] != 0xed || !(bytes[i+4] >= 0xb0 && bytes[i+4] <= 0xbf) {
+					return nil
+				}
+
+				// decode the whole surrogate pair
+				c1 := i32(bytes[i]&0xf) << 12
+				c1 |= i32(bytes[i+1]&0x3f) << 6
+				c1 |= i32(bytes[i+2] & 0x3f)
+				c2 := i32(bytes[i+3]&0xf) << 12
+				c2 |= i32(bytes[i+4]&0x3f) << 6
+				c2 |= i32(bytes[i+5] & 0x3f)
+				cp := 0x10000 + ((c1 - 0xd800) << 10) | (c2 - 0xdc00)
+
+				write_rune(&buf, rune(cp))
+				i += 3 // eat the second half
+			} else {
+				// others can be copied
+				write_bytes(&buf, bytes[i : i+3])
+			}
+
+			i += 3
+		} else {
+			// would be >3 bytes (invalid)
+			return nil
+		}
+    }
+    return to_string(buf)
 }
 
 main :: proc() {

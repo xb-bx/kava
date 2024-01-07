@@ -24,7 +24,7 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
         sub_size = -cast(int)last
     }
     stack_size := cast(int)method.code.(classparser.CodeAttribute).max_stack * 8
-    sub_size += stack_size
+    sub_size += stack_size + 64
     if sub_size % 16 != 0 {
         sub_size += 8
     }
@@ -149,22 +149,22 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
     
     args := count_args(target)
     registers := [?]Reg64 {rdi, rsi, rdx, rcx, r8, r9}
-    if method.name == "<clinit>" {
-        initializer := find_method(target.parent, "<clinit>", "()V")
-        if initializer != nil {
-            already_initialized := create_label(assembler)
-            mov(assembler, rax, transmute(int)&target.parent.class_initializer_called)
-            mov(assembler, al, at(rax))
-            mov(assembler, r10b, u8(0))
-            cmp(assembler, al, r10b)
-            jne(assembler, already_initialized)
-            mov(assembler, rax, transmute(int)initializer)
-            call(assembler, rax)
-            set_label(assembler, already_initialized)
-        }
-        
-
-    }
+//     if method.name == "<clinit>" {
+//         initializer := find_method(target.parent, "<clinit>", "()V")
+//         if initializer != nil {
+//             already_initialized := create_label(assembler)
+//             mov(assembler, rax, transmute(int)&target.parent.class_initializer_called)
+//             mov(assembler, al, at(rax))
+//             mov(assembler, r10b, u8(0))
+//             cmp(assembler, al, r10b)
+//             jne(assembler, already_initialized)
+//             mov(assembler, rax, transmute(int)initializer)
+//             call(assembler, rax)
+//             set_label(assembler, already_initialized)
+//         }
+//         
+// 
+//     }
     regular, fp := split_args_into_regular_and_fp(target.args)
     defer delete(regular)
     defer delete(fp)
@@ -223,4 +223,40 @@ alloc_executable :: proc(size: uint) -> [^]u8 {
 }
 free_executable :: proc(ptr: [^]u8, size: uint) {
     assert(unix.sys_munmap(rawptr(ptr), size) == 0)
+}
+
+jit_ensure_clinit_called_body :: proc "c" (vm: ^VM, class: ^Class, initializer: ^Method) {
+    context = vm.ctx
+    if class.super_class != nil && !class.super_class.class_initializer_called {
+        parent_initializer := find_method(class.super_class, "<clinit>", "()V")
+        if parent_initializer != nil {
+            jit_ensure_clinit_called_body(vm, class.super_class, parent_initializer)
+        }
+    }
+    if !class.class_initializer_called {
+        class.class_initializer_called = true
+        (transmute(proc "c" ())initializer.jitted_body)()
+    }
+}
+jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {
+//     if class.paren
+    using x86asm
+    initializer := find_method(class, "<clinit>", "()V")
+    if initializer != nil {
+    
+        mov(assembler, parameter_registers[0], transmute(int)vm)
+        mov(assembler, parameter_registers[1], transmute(int)class)
+        mov(assembler, parameter_registers[2], transmute(int)initializer)
+        mov(assembler, rax, transmute(int)jit_ensure_clinit_called_body)
+        call(assembler, rax)
+//         already_initialized := create_label(assembler)
+//         mov(assembler, rax, transmute(int)&class.class_initializer_called)
+//         mov(assembler, al, at(rax))
+//         mov(assembler, r10b, u8(0))
+//         cmp(assembler, al, r10b)
+//         jne(assembler, already_initialized)
+//         mov(assembler, rax, transmute(int)initializer.jitted_body)
+//         call(assembler, rax)
+//         set_label(assembler, already_initialized)
+    }
 }
