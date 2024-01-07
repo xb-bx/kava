@@ -22,7 +22,7 @@ generate_native_methods :: proc() {
     classes := make([dynamic]string)
     for name, file in pkg.files {
         if strings.last_index(name, ".generated.odin") == -1 {
-            classname_dots := slashpath.name(name, true) 
+            classname_dots := slashpath.name(filepath.base(name), true)
             classname, _ := strings.replace_all(classname_dots, ".", "/")
             classname_underscored, _ := strings.replace_all(classname, "/", "_")
             append(&classes, classname_underscored)

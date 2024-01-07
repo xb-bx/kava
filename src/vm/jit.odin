@@ -1435,3 +1435,17 @@ StackEntry :: struct {
     rbp: int,
     size: int,
 }
+
+jit_ensure_clinit_called_body :: proc "c" (vm: ^VM, class: ^Class, initializer: ^Method) {
+    context = vm.ctx
+    if class.super_class != nil && !class.super_class.class_initializer_called {
+        parent_initializer := find_method(class.super_class, "<clinit>", "()V")
+        if parent_initializer != nil {
+            jit_ensure_clinit_called_body(vm, class.super_class, parent_initializer)
+        }
+    }
+    if !class.class_initializer_called {
+        class.class_initializer_called = true
+        (transmute(proc "c" ())initializer.jitted_body)()
+    }
+}

@@ -14,6 +14,7 @@ import "zip:zip"
 import "core:sys/windows"
 import "kava:vm/native"
 import "core:sys/unix"
+import "core:unicode/utf16"
 import kavavm "kava:vm"
 
 // foreign import native_methods "native.o"
@@ -48,7 +49,14 @@ get_executable_path :: proc () -> string {
         return strings.clone_from_bytes(buf[:n])
 
     } else when ODIN_OS == .Windows {
-        panic("not implemented")
+        buf := make([]u16, 512)
+        defer delete(buf)
+        buf_raw := slice.as_ptr(buf)
+        n := windows.GetModuleFileNameW(nil, buf_raw, u32(len(buf)))
+        result_buf := make([]u8, 1024)
+        defer delete(result_buf)
+        strlen := utf16.decode_to_utf8(result_buf, buf[:int(n)])
+        return strings.clone_from_bytes(result_buf[:strlen])
     } else {
         panic("not implemented")
     }

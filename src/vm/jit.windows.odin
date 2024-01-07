@@ -208,21 +208,21 @@ alloc_executable :: proc(size: uint) -> [^]u8 {
     }
     return data.base
 }
+
 jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {
-//     if class.paren
     using x86asm
+    this_class := ctx.method.parent 
+    if is_subtype_of(this_class, class) {
+        return
+    }
     initializer := find_method(class, "<clinit>", "()V")
     if initializer != nil {
-        already_initialized := create_label(assembler)
-        mov(assembler, rax, transmute(int)&class.class_initializer_called)
-        mov(assembler, al, at(rax))
-        mov(assembler, r10b, u8(0))
-        cmp(assembler, al, r10b)
-        jne(assembler, already_initialized)
-        mov(assembler, rax, transmute(int)initializer.jitted_body)
+        mov(assembler, parameter_registers[0], transmute(int)vm)
+        mov(assembler, parameter_registers[1], transmute(int)class)
+        mov(assembler, parameter_registers[2], transmute(int)initializer)
+        mov(assembler, rax, transmute(int)jit_ensure_clinit_called_body)
         subsx(assembler, rsp, i32(32))
         call(assembler, rax)
         addsx(assembler, rsp, i32(32))
-        set_label(assembler, already_initialized)
     }
 }

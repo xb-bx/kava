@@ -4,7 +4,6 @@ TODO:
 - [X] Class parser
 - [X] Type system
 - [X] .jar loading
-- [ ] standard classes(java.lang.*, java.io.* etc.)
 - [ ] JIT(WIP ~30% done)
 - [ ] JNI
 - [X] GC

@@ -83,40 +83,80 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     return nil
 //     return nil
 }
-/// registerNatives ()V
-System_registerNatives :: proc "c" () {
-    using kava
-    context = vm.ctx
-    system := vm.classes["java/lang/System"]
-    fdclass := load_class(vm, "java/io/FileDescriptor").value.(^Class)  
-    fdclass.class_initializer_called = true
-    ctor := transmute(proc "c" (fd: ^ObjectHeader, fdint: i32))find_method(fdclass, "<init>", "(I)V").jitted_body
-    infld := transmute(^^ObjectHeader)&find_field(fdclass, "in").static_data
-    outfld := transmute(^^ObjectHeader)&find_field(fdclass, "out").static_data
-    errfld := transmute(^^ObjectHeader)&find_field(fdclass, "err").static_data
-    gc_alloc_object(vm, fdclass, infld)
-    ctor(infld^, 0)
-    gc_alloc_object(vm, fdclass, outfld)
-    ctor(outfld^, 1)
-    gc_alloc_object(vm, fdclass, errfld)
-    ctor(errfld^, 2)
-    fileOutputStream := load_class(vm, "java/io/FileOutputStream").value.(^Class)
-    printStream := load_class(vm, "java/io/PrintStream").value.(^Class)
-    fileOutputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileOutputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
-    printStream_init := (transmute(proc "c" (this: ^ObjectHeader, stream: ^ObjectHeader))find_method(printStream, "<init>", "(Ljava/io/OutputStream;)V").jitted_body)
+when ODIN_OS == .Linux {
+    /// registerNatives ()V
+    System_registerNatives :: proc "c" () {
+        using kava
+        context = vm.ctx
+        system := vm.classes["java/lang/System"]
+        fdclass := load_class(vm, "java/io/FileDescriptor").value.(^Class)  
+        fdclass.class_initializer_called = true
+        ctor := transmute(proc "c" (fd: ^ObjectHeader, fdint: i32))find_method(fdclass, "<init>", "(I)V").jitted_body
+        infld := transmute(^^ObjectHeader)&find_field(fdclass, "in").static_data
+        outfld := transmute(^^ObjectHeader)&find_field(fdclass, "out").static_data
+        errfld := transmute(^^ObjectHeader)&find_field(fdclass, "err").static_data
+        gc_alloc_object(vm, fdclass, infld)
+        ctor(infld^, 0)
+        gc_alloc_object(vm, fdclass, outfld)
+        ctor(outfld^, 1)
+        gc_alloc_object(vm, fdclass, errfld)
+        ctor(errfld^, 2)
+        fileOutputStream := load_class(vm, "java/io/FileOutputStream").value.(^Class)
+        printStream := load_class(vm, "java/io/PrintStream").value.(^Class)
+        fileOutputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileOutputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
+        printStream_init := (transmute(proc "c" (this: ^ObjectHeader, stream: ^ObjectHeader))find_method(printStream, "<init>", "(Ljava/io/OutputStream;)V").jitted_body)
 
-    out_printStream_ref := transmute(^^ObjectHeader)&find_field(system, "out").static_data
-    gc_alloc_object(vm, printStream, out_printStream_ref)
+        out_printStream_ref := transmute(^^ObjectHeader)&find_field(system, "out").static_data
+        gc_alloc_object(vm, printStream, out_printStream_ref)
 
-    out_file_stream: ^ObjectHeader = nil
-    gc_alloc_object(vm, fileOutputStream, &out_file_stream)
-    fileOutputStream_init(out_file_stream, outfld^)
-    
-    printStream_init(out_printStream_ref^, out_file_stream)
+        out_file_stream: ^ObjectHeader = nil
+        gc_alloc_object(vm, fileOutputStream, &out_file_stream)
+        fileOutputStream_init(out_file_stream, outfld^)
+        
+        printStream_init(out_printStream_ref^, out_file_stream)
+    }
+}
+else when ODIN_OS == .Windows {
+
+
+    /// registerNatives ()V
+    System_registerNatives :: proc "c" () {
+        using kava
+        context = vm.ctx
+        system := vm.classes["java/lang/System"]
+        fdclass := load_class(vm, "java/io/FileDescriptor").value.(^Class)  
+        fdclass.class_initializer_called = true
+        infld := transmute(^^ObjectHeader)&find_field(fdclass, "in").static_data
+        outfld := transmute(^^ObjectHeader)&find_field(fdclass, "out").static_data
+        errfld := transmute(^^ObjectHeader)&find_field(fdclass, "err").static_data
+
+        standardStream := transmute(proc "c" (fd: int) -> ^ObjectHeader)(find_method(fdclass, "standardStream", "(I)Ljava/io/FileDescriptor;").jitted_body)
+        infld^ = standardStream(0)
+        outfld^ = standardStream(1)
+        errfld^ = standardStream(2)
+//         if true { panic("") }
+
+
+
+        fileOutputStream := load_class(vm, "java/io/FileOutputStream").value.(^Class)
+        printStream := load_class(vm, "java/io/PrintStream").value.(^Class)
+        fileOutputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileOutputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
+        printStream_init := (transmute(proc "c" (this: ^ObjectHeader, stream: ^ObjectHeader))find_method(printStream, "<init>", "(Ljava/io/OutputStream;)V").jitted_body)
+
+        out_printStream_ref := transmute(^^ObjectHeader)&find_field(system, "out").static_data
+        gc_alloc_object(vm, printStream, out_printStream_ref)
+
+        out_file_stream: ^ObjectHeader = nil
+        gc_alloc_object(vm, fileOutputStream, &out_file_stream)
+        fileOutputStream_init(out_file_stream, outfld^)
+        
+        printStream_init(out_printStream_ref^, out_file_stream)
 
 
 
 
+
+    }
 
 }
 /// <clinit> ()V replace
