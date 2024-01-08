@@ -422,26 +422,20 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                     return Err(^Class, err.(string))
                 }
                 meth.parent = class
+                meth.jitted_body = nil
                 class.methods[i] = meth
-                prepare_lazy_bootstrap(vm, &class.methods[i])
 
                 
             }
-            for const in classfile.constant_pool {
-                if classconst, isclass := const.(classparser.ClassInfo); isclass {
-                    name := resolve_utf8(classfile, classconst.name_index)
-                    if name == nil {
-                        return Err(^Class, fmt.aprintf("Invalid class file %s", classfile))
-                    }
-                    res := load_class(vm, name.(string))
-                    if res.is_err {
-                        return res
-                    }
+            init := vm.native_intitializers[class.name]
+            if init != nil { init() }
+            for &method in class.methods {
+//                 if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native) {
+                if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Abstract) && method.jitted_body == nil {
+                    prepare_lazy_bootstrap(vm, &method)
                 }
             }
             gc_add_static_fields(vm.gc, class)
-            init := vm.native_intitializers[class.name]
-            if init != nil { init() }
             return Ok(string, class) 
         }
     }

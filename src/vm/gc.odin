@@ -186,7 +186,7 @@ gc_mark_all_objects :: proc (gc: ^GC) {
 gc_collect :: proc (gc: ^GC) {
 //     stopwatch := time.Stopwatch {}
 //     time.stopwatch_start(&stopwatch)
-    if true { return }
+//     if true { return }
 
     gc_mark_all_objects(gc)
     for chunk in gc.chunks {
