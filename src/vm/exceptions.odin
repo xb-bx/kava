@@ -23,7 +23,6 @@ throw_exception_strobj :: proc "c" (vm: ^VM, exception_name: string, message: ^O
     context = vm.ctx
     nimpl: ^ObjectHeader = nil
     exc := load_class(vm, exception_name)
-    fmt.println("LOADED")
     gc_alloc_object(vm, exc.value.(^Class), &nimpl) 
     set_object_field(nimpl, "detailMessage", transmute(int)message)
     rbp := 0
@@ -31,9 +30,10 @@ throw_exception_strobj :: proc "c" (vm: ^VM, exception_name: string, message: ^O
     target := throw_impl(vm, nimpl, &rbp, &size)
     asm(^ObjectHeader) #side_effects #intel { "mov rdi, rax", ":rax" }(nimpl)
     asm(int) #side_effects #intel { "mov r10, rax", ":rax" }(target)
+    asm(int) #side_effects #intel { "mov r11, rax", ":rax" }(size)
     asm(int) #side_effects #intel { "mov rbp, rax", ":rax" }(rbp)
-    asm(int) #side_effects #intel { "mov rsp, rbp", ":rax" }(rbp)
-    asm(int) #side_effects #intel { "sub rsp, rax", ":rax" }(size)
+    asm(int) #side_effects #intel { "mov rsp, rbp", ":rax" }(0)
+    asm(int) #side_effects #intel { "sub rsp, r11", ":rax" }(0)
     asm(int) #side_effects #intel { "jmp r10", ":rax" }(0)
 
 }
