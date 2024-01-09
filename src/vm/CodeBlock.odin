@@ -403,6 +403,11 @@ is_subtype_of :: proc(subtype: ^Class, parent: ^Class) -> bool {
     if subtype.super_class == parent {
         return true
     }
+    else if subtype.class_type == ClassType.Array && parent.class_type == ClassType.Array &&
+    subtype.underlaying.class_type != ClassType.Primitive &&
+    parent.underlaying.class_type != ClassType.Primitive {
+        return is_subtype_of(subtype.underlaying, parent.underlaying)
+    }  
     else if hasFlag(parent.access_flags, classparser.ClassAccessFlags.Interface) {
         class := subtype
         for class != nil {

@@ -54,7 +54,7 @@ generate_native_methods :: proc() {
                             }
                             else if len(splited) == 3 {
                                 fmt.sbprintf(&builder, "    meth = kava.find_method(class, \"%s\", \"%s\")\n", splited[0], splited[1])
-                                fmt.sbprintf(&builder, "    if meth != nil {{ kava.replace_body(meth, transmute(rawptr)%s) }}\n", procname)
+                                fmt.sbprintf(&builder, "    if meth != nil {{ kava.replace_body(vm, meth, transmute(rawptr)%s) }}\n", procname)
 
                             }
                         }
