@@ -126,7 +126,11 @@ main :: proc() {
         natives_table = make(map[^Method][^]u8),
         classobj_to_class_map = make(map[^ObjectHeader]^Class),
         native_intitializers = make(map[string]proc()),
+        exe_allocator = {},
     })
+    exealloc_init(&vm.exe_allocator)
+    prepare_after_jitted(vm)
+    prepare_before_jitted(vm)
     native.add_initilizers(vm)
     for prim in PrimitiveType {
         make_primitive(vm, prim, primitive_names[prim], primitive_sizes[prim])

@@ -23,6 +23,7 @@ VM :: struct {
     natives_table: map[^Method][^]u8,
     native_intitializers: map[string]proc(),
     classobj_to_class_map: map[^ObjectHeader]^Class,
+    exe_allocator: ExeAllocator,
 }
 array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {
@@ -269,14 +270,17 @@ find_method_by_name_and_descriptor :: proc(class: ^Class, name: string, descript
     }
     return nil
 }
-replace_body :: proc(method: ^Method, procptr: rawptr) {
+replace_body :: proc(vm: ^VM, method: ^Method, procptr: rawptr) {
     using x86asm
     assembler := Assembler {}
     init_asm(&assembler)
     defer delete_asm(&assembler)
     mov(&assembler, Reg64.Rax, transmute(int)procptr)
     jmp(&assembler, Reg64.Rax)
-    method.jitted_body = alloc_executable(len(assembler.bytes))
+    if method.jitted_body != nil {
+//         executable_free(&vm.exe_allocator, method.jitted_body)
+    }
+    method.jitted_body = exealloc_alloc(&vm.exe_allocator, len(assembler.bytes))
     for b, i in assembler.bytes {
         method.jitted_body[i] = b
     }
@@ -430,7 +434,6 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
             init := vm.native_intitializers[class.name]
             if init != nil { init() }
             for &method in class.methods {
-//                 if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native) {
                 if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Abstract) && method.jitted_body == nil {
                     prepare_lazy_bootstrap(vm, &method)
                 }
@@ -441,7 +444,9 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
     }
     return Err(^Class, fmt.aprintf("Could not find class %s", class_name))
 }
-prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
+bootstrap_before_jitted: [^]u8 = nil
+bootstrap_after_jitted: [^]u8 = nil
+prepare_before_jitted :: proc(vm: ^VM) {
     using x86asm
     assembler := Assembler {}
     init_asm(&assembler, false)
@@ -451,6 +456,7 @@ prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
     for reg in parameter_registers {
         push(&assembler, reg)
     }
+    mov(&assembler, rax, r10)
     mov(&assembler, r10, rsp)
     subsx(&assembler, rsp, i32(64))
     for xmmreg in 0..=7 {
@@ -458,11 +464,24 @@ prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
         movsd_mem64_xmm(&assembler, at(r10), Xmm(xmmreg))
     }
     mov(&assembler, parameter_registers[0], transmute(int)vm)
-    mov(&assembler, parameter_registers[1], transmute(int)method)
+    mov(&assembler, parameter_registers[1], rax)
     mov(&assembler, parameter_registers[2], int(0))
     mov(&assembler, rax, transmute(int)jit_method_lazy)
     when ODIN_OS == .Windows { subsx(&assembler, rsp, 32) }
-    call(&assembler, rax)
+    mov(&assembler, r10, transmute(int)bootstrap_after_jitted)
+    push(&assembler, r10)
+    jmp(&assembler, rax)
+
+    bootstrap_before_jitted = exealloc_alloc(&vm.exe_allocator, len(assembler.bytes))
+    for b, i in assembler.bytes {
+        bootstrap_before_jitted[i] = b
+    }
+}
+prepare_after_jitted :: proc(vm: ^VM) {
+    using x86asm
+    assembler := Assembler {}
+    init_asm(&assembler, false)
+    defer delete_asm(&assembler)
     when ODIN_OS == .Windows { addsx(&assembler, rsp, 32) }
     regi := len(parameter_registers) - 1
     xmmreg := 7
@@ -479,7 +498,22 @@ prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
     }
     addsx(&assembler, rsp, 8)
     jmp(&assembler, rax)
-    method.jitted_body = alloc_executable(LAZY_LENGTH)
+
+    bootstrap_after_jitted = exealloc_alloc(&vm.exe_allocator, len(assembler.bytes))
+    for b, i in assembler.bytes {
+        bootstrap_after_jitted[i] = b
+    }
+}
+prepare_lazy_bootstrap :: proc(vm: ^VM, method: ^Method) {
+    using x86asm
+    assembler := Assembler {}
+    init_asm(&assembler, false)
+    defer delete_asm(&assembler)
+    mov(&assembler, r10, transmute(int)method)
+    mov(&assembler, rax, transmute(int)bootstrap_before_jitted)
+    jmp(&assembler, rax)
+
+    method.jitted_body = exealloc_alloc(&vm.exe_allocator, len(assembler.bytes))
     for b, i in assembler.bytes {
         method.jitted_body[i] = b
     }

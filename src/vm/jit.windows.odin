@@ -196,19 +196,6 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
     return sub_size
 }
 
-alloc_executable :: proc(size: uint) -> [^]u8 {
-    data, err := virtual.memory_block_alloc(size, size, {})
-
-    if err != virtual.Allocator_Error.None {
-        panic("Failed to allocate executable memory")
-    }
-    ok := virtual.protect(data.base, data.reserved, { virtual.Protect_Flag.Read, virtual.Protect_Flag.Write, virtual.Protect_Flag.Execute})
-    if !ok {
-        panic("Failed to allocate executable memory")
-    }
-    return data.base
-}
-
 jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {
     using x86asm
     this_class := ctx.method.parent 

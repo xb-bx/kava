@@ -109,8 +109,7 @@ jit_method_lazy :: proc "c" (vm: ^VM, method: ^Method, body_size: ^int = nil) ->
     }
     
     if method.jitted_body != nil {
-//         free_executable(method.jitted_body, LAZY_LENGTH)
-        // TODO: FREE THIS SHIT
+        executable_free(&vm.exe_allocator, method.jitted_body)
     }
     size := jit_method(vm, method, res.value.([]CodeBlock))
     if body_size != nil {
@@ -198,7 +197,7 @@ jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
         exc.offset = labels[cast(int)exception.handler_pc].offset
         method.exception_table[i] = exc
     }
-    body := alloc_executable(len(assembler.bytes))
+    body := exealloc_alloc(&vm.exe_allocator, len(assembler.bytes))
     assert(body != nil)
     for b, i in assembler.bytes {
         body[i] = b
@@ -1449,3 +1448,4 @@ jit_ensure_clinit_called_body :: proc "c" (vm: ^VM, class: ^Class, initializer: 
         (transmute(proc "c" ())initializer.jitted_body)()
     }
 }
+

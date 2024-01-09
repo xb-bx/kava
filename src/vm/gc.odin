@@ -98,11 +98,11 @@ gc_add_static_fields :: proc(gc: ^GC, class: ^Class) {
         }
     }
 }
-gc_is_ptr_inbounds_of :: proc(chunk: ^Chunk, ptr: rawptr) -> bool {
+gc_is_ptr_inbounds_of :: proc(chunk: ^Chunk, ptr: rawptr, alignment := GC_ALLIGNMENT) -> bool {
     start := transmute(int)chunk.data 
     end := start + chunk.size
     iptr := transmute(int)ptr
-    if (iptr - start) % GC_ALLIGNMENT != 0 {
+    if (iptr - start) % alignment != 0 {
         return false 
     }
     return iptr >= start && iptr < end
@@ -315,6 +315,7 @@ get_object_field_ref :: proc "c" (object: ^ObjectHeader, field_name: string) -> 
     field := find_field(object.class, field_name)
     if field == nil {
         context = {}
+        fmt.println(field_name)
         panic("Unknown field")
     }
     return (transmute(^^ObjectHeader)(transmute(int)object + cast(int)field.offset))
