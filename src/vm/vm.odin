@@ -63,6 +63,15 @@ hasFlag :: proc(flags: $T, flag: T) -> bool
     where intrinsics.type_is_enum(T) {
     return cast(int)flags & cast(int)flag > 0
 }
+hasAnyFlags :: proc(flags_val: $T, flags: ..T) -> bool 
+    where intrinsics.type_is_enum(T) {
+    for flag in flags {
+        if hasFlag(flags_val, flag) {
+            return true
+        }
+    }
+    return false
+}
 
 javaString_to_string :: proc(str: ^ObjectHeader) -> string {
     charsArray  := transmute(^ArrayHeader)(get_object_field_ref(str, "value")^)
@@ -406,6 +415,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
             }
             class.instance_fields = instance_fields[:]
             calculate_class_size(class)
+            determine_if_class_is_finalizable(class)
             class.methods = make([]Method, len(classfile.methods)) 
             for method,i in classfile.methods {
                 meth := Method {}
@@ -601,6 +611,13 @@ type_descriptor_to_type :: proc(vm: ^VM, descriptor: string) -> (shared.Result(^
             }
     }
     panic("Should not happen")
+}
+determine_if_class_is_finalizable :: proc(class: ^Class) {
+    if class.name == "java/lang/Object" {
+        class.is_finalizable = false
+    } else {
+        class.is_finalizable = class.super_class.is_finalizable || find_method(class, "finalize", "()V") != nil
+    }
 }
 calculate_class_size :: proc(class: ^Class) {
     size := 0 

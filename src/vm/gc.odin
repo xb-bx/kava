@@ -15,6 +15,8 @@ GC_ALLIGNMENT :: 128
 ObjectHeaderGCFlags :: enum int {
     Marked = 0x0001,
     Frozen = 0x0002,
+    Finalizing = 0x0004,
+    Finalized = 0x0008,
 }
 ObjectHeader :: struct {
     class: ^Class,
@@ -116,7 +118,7 @@ gc_chunk_of_pointer :: proc(gc: ^GC, ptr: rawptr) -> ^Chunk {
     return nil
 }
 gc_visit_obj :: proc(gc: ^GC, obj: ^ObjectHeader, class: ^Class = nil) {
-    if hasFlag(obj.flags, ObjectHeaderGCFlags.Marked) && class == nil { return }
+    if hasAnyFlags(obj.flags, ObjectHeaderGCFlags.Marked, ObjectHeaderGCFlags.Finalizing) && class == nil { return }
     obj.flags |= ObjectHeaderGCFlags.Marked
     class := class
     if class == nil {
@@ -182,15 +184,27 @@ gc_visit_stack :: proc(gc: ^GC) {
 gc_mark_all_objects :: proc (gc: ^GC) {
     gc_visit_roots(gc)
     gc_visit_stack(gc)
+    for obj in objects_to_finalize {
+        gc_visit_obj(gc, obj)
+    }
 }
+objects_to_finalize : = make([dynamic]^ObjectHeader)
+collection_depth := 0
 gc_collect :: proc (gc: ^GC) {
-//     stopwatch := time.Stopwatch {}
-//     time.stopwatch_start(&stopwatch)
+     stopwatch := time.Stopwatch {}
+     time.stopwatch_start(&stopwatch)
 //     if true { return }
 
+    //defer delete(objects_to_finalize)
+    if collection_depth != 0 {
+        return
+    }
+    collection_depth += 1 
     gc_mark_all_objects(gc)
+    objs := make([dynamic]^ObjectHeader)
+        
+    //objs.
     for chunk in gc.chunks {
-        prev: ^FreePlace = nil
         i := 0
         for i < (chunk.size) {
             obj := transmute(^ObjectHeader)(transmute(int)chunk.data + i)
@@ -198,11 +212,27 @@ gc_collect :: proc (gc: ^GC) {
                 i += GC_ALLIGNMENT
                 continue;
             }
+            if !hasAnyFlags(obj.flags, ObjectHeaderGCFlags.Marked,ObjectHeaderGCFlags.Frozen, ObjectHeaderGCFlags.Finalizing, ObjectHeaderGCFlags.Finalized) {
+                obj.flags ~= ObjectHeaderGCFlags.Finalizing
+                append(&objects_to_finalize, obj) 
+            }
+            i += align_size(obj.size)
+        }
+    }
+    
+    for chunk in gc.chunks {
+        prev: ^FreePlace = nil
+        i := 0
+        for i < (chunk.size) {
+            obj := transmute(^ObjectHeader)(transmute(int)chunk.data + i)
+            if(obj.class == nil || hasFlag(obj.flags, ObjectHeaderGCFlags.Finalizing)) {
+                i += GC_ALLIGNMENT
+                continue;
+            }
             if hasFlag(obj.flags, ObjectHeaderGCFlags.Marked) || hasFlag(obj.flags, ObjectHeaderGCFlags.Frozen) {
                 obj.flags ~= ObjectHeaderGCFlags.Marked
             }
             else {
-//                 fmt.println("freed", obj.class.name, obj.size, i, align_size(obj.size))
                 if prev != nil && prev.offset + prev.size == i {
                     prev.size += align_size(obj.size)
                 }
@@ -215,15 +245,21 @@ gc_collect :: proc (gc: ^GC) {
             i += align_size(obj.size)
         }
     }
-//     time.stopwatch_stop(&stopwatch)
-//     dur := time.duration_milliseconds(time.stopwatch_duration(stopwatch))
-//     fmt.println("GC took", dur, "ms")
+    for obj in objects_to_finalize {
+        (transmute(proc "c" (object: ^ObjectHeader)) (find_method_virtual(obj.class, "finalize", "()V").jitted_body))(obj)
+        obj.flags ~= ObjectHeaderGCFlags.Finalized
+        obj.flags ~= ObjectHeaderGCFlags.Finalizing
+    }
+    clear(&objects_to_finalize)
+    collection_depth -= 1
+    time.stopwatch_stop(&stopwatch)
+    dur := time.duration_milliseconds(time.stopwatch_duration(stopwatch))
+    fmt.println("GC took", dur, "ms")
 }
 align_size :: proc (size: $T, alignment := GC_ALLIGNMENT) -> T {
     return size % T(alignment) == 0 ? size : size + T(alignment) - size % T(alignment)
 }
 gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: i32 = -1) {
-    
     context = vm.ctx
     objsize := align_size(size <= -1 ? class.size : int(size))
     objplace := gc_find_freeplace(vm.gc, objsize)

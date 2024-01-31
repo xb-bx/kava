@@ -6,3 +6,4 @@ odin-zip
 x86asm
 *.generated.odin
 cache/*
+jre

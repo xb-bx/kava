@@ -54,6 +54,7 @@ Class :: struct {
     size: int,
     size_without_header: int,
     class_initializer_called: bool,
+    is_finalizable: bool,
 }
 ExceptionInfo :: struct {
     start: int,

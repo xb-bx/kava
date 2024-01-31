@@ -114,6 +114,13 @@ when ODIN_OS == .Linux {
         fileOutputStream_init(out_file_stream, outfld^)
         
         printStream_init(out_printStream_ref^, out_file_stream)
+
+        fileInputStream := load_class(vm, "java/io/FileInputStream").value.(^Class)
+        fileInputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileInputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
+        in_ref := transmute(^^ObjectHeader)&find_field(system, "in").static_data
+        gc_alloc_object(vm, fileInputStream, in_ref)
+        fileInputStream_init(in_ref^, infld^);
+
     }
 }
 else when ODIN_OS == .Windows {
