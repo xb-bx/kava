@@ -153,8 +153,8 @@ jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
         mov(&assembler, r10, transmute(int)&method.parent.class_initializer_called)
         movsx(&assembler, at(r10), i32(1))
     }
-    if method.name == "isSatisfiedBy" && method.parent.name == "java/util/regex/Pattern$5" {
-//         int3(&assembler)
+    if method.name == "<clinit>" && method.parent.name == "java/lang/Integer$IntegerCache" && method.descriptor == "()V" {
+         //int3(&assembler)
     }
     when ENABLE_GDB_DEBUGGING {
         file, handle := jit_create_bytecode_file_for_method(method)
@@ -390,7 +390,12 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, rax, at(rbp,  stack_base - 8 * (stack_count + 1)))
                 mov(assembler, at(rbp, locals[index]), rax)
-            case .aload, .iload, .fload, .lload, .dload:
+            case .iload, .fload:
+                stack_count += 1
+                index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                mov(assembler, eax, at(rbp,  locals[index]))
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+            case .aload, .lload, .dload:
                 stack_count += 1
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, rax, at(rbp,  locals[index]))
@@ -430,11 +435,17 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 pop(assembler, rbp)
                 ret(assembler)
             case .ireturn, .areturn, .lreturn:
+                subsx(assembler, rsp, i32(16))
+                mov(assembler, rax, transmute(int)(uint(0xfffffffffffffff0)))
+                and(assembler, rsp, rax)
+
+                
                 when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
                 mov(assembler, rax, transmute(int)stack_trace_pop)
                 mov(assembler, parameter_registers[0], transmute(int)vm)
                 call(assembler, rax)
                 when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
+                //addsx(assembler, rsp, i32(8))
                 stack_count -= 1
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 mov(assembler, rsp, rbp)
@@ -534,6 +545,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 jit_div_by_zero_check(ctx, r10, get_instr_offset(instruction))
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cdq(assembler)
                 idiv(assembler, r10)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rdx)
@@ -543,6 +555,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 jit_div_by_zero_check(ctx, r10, get_instr_offset(instruction))
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cdq(assembler)
                 idiv(assembler, r10d)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
@@ -551,6 +564,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 mov(assembler, r10d, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cdq(assembler)
                 imul(assembler, rax, r10)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
@@ -996,6 +1010,21 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rcx)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+            case .dup_x2: // value1, value2, value3 -> value1, value3, value2, value1
+                mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
+                stack_count -= 1
+                mov(assembler, rcx, at(rbp, stack_base - 8 * stack_count))
+                stack_count -= 1
+                mov(assembler, rdx, at(rbp, stack_base - 8 * stack_count))
+                stack_count -= 1
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rdx)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rcx)
+                stack_count += 1
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .dup:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
                 stack_count += 1
@@ -1091,7 +1120,7 @@ checkcast :: proc "c" (vm: ^VM, class: ^Class, object: ^ObjectHeader) {
 }
 instanceof :: proc "c" (vm: ^VM, class: ^Class, object: ^ObjectHeader) -> bool {
     context = vm.ctx
-    return is_subtype_of(object.class, class)
+    return object != nil && is_subtype_of(object.class, class)
 //     if(hasFlag(class.access_flags, classparser.ClassAccessFlags.Interface)) {
 //         return does_implements_interface(object.class, class)      
 //     }
@@ -1224,9 +1253,14 @@ jit_bounds_check :: proc(using ctx: ^JittingContext, array: x86asm.Reg64, index:
     jmp(assembler, rax)
     set_label(assembler, notoutofbounds)
 }
-is_long_or_double :: proc(class: ^Class) -> bool {
+is_long_or_double_class :: proc(class: ^Class) -> bool {
     return class.name == "long" || class.name == "double"
 }
+is_long_or_double_stacktype :: proc(class: ^StackType) -> bool {
+    
+    return !class.is_null && (class.class.name == "long" || class.class.name == "double")
+}
+is_long_or_double :: proc { is_long_or_double_class, is_long_or_double_stacktype }
 jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.Instruction) {
     using classparser
     using x86asm
@@ -1342,6 +1376,7 @@ jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method
             fmt.println()
             fmt.println(target.name)
             fmt.println(object.class.name)
+            fmt.println(target.parent.name)
             print_stack_trace()
             fmt.println(transmute(^int)object)
             throw_exception_string(vm, "java/lang/AbstractMethodError", "")
@@ -1403,19 +1438,19 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
 }
 stacktrace := make([dynamic]^StackEntry)
 stack_trace_push :: proc(stack_entry: ^StackEntry) {
-//     for i in 0..<len(stacktrace) {
-//         fmt.print(' ')
-//     }
-//     fmt.println("entered", stack_entry.method.name, stack_entry.method.descriptor, stack_entry.method.parent.name)
+     //for i in 0..<len(stacktrace) {
+         //fmt.print(' ')
+     //}
+     //fmt.println("entered", stack_entry.method.name, stack_entry.method.descriptor, stack_entry.method.parent.name)
     append(&stacktrace, stack_entry)
 }
 stack_trace_pop :: proc "c" (vm: ^VM) -> ^StackEntry {
     context = vm.ctx
     res := stacktrace[len(stacktrace) - 1] 
-//     for i in 0..<len(stacktrace)-1 {
-//         fmt.print(' ')
-//     }
-//     fmt.println("left", res.method.name, res.method.parent.name)
+     //for i in 0..<len(stacktrace)-1 {
+         //fmt.print(' ')
+     //}
+     //fmt.println("left   ", res.method.name, res.method.parent.name)
     ordered_remove(&stacktrace, len(stacktrace) - 1) 
     return res
 }

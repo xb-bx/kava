@@ -5,6 +5,11 @@ import "core:unicode/utf16"
 import "core:strings"
 import "core:fmt"
 
+/// identityHashCode (Ljava/lang/Object;)I 
+System_identityHashCode :: proc(obj: ^kava.ObjectHeader) -> i32 {
+    return i32(transmute(int)obj)
+}
+
 /// arraycopy (Ljava/lang/Object;ILjava/lang/Object;II)V
 arraycopy :: proc "c" (src: ^kava.ArrayHeader, src_pos: i32, dest: ^kava.ArrayHeader, desr_pos: i32, count: i32) {
     context = vm.ctx
@@ -76,8 +81,13 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
         str: ^kava.ObjectHeader = nil 
         kava.gc_alloc_string(vm, "\n", &str)
         return str
+    } else if prop == "sun.reflect.noCaches" {
+        str: ^kava.ObjectHeader = nil 
+        kava.gc_alloc_string(vm, "true", &str)
+        return str
     }
     else {
+        fmt.println(prop)
         panic("exception")
     }
     return nil

@@ -93,11 +93,12 @@ gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
     append(&gc.free_places, freeplace)
 }
 
-gc_add_static_fields :: proc(gc: ^GC, class: ^Class) {
+gc_add_field_roots :: proc(gc: ^GC, class: ^Class) {
     for &fld in class.fields {
         if hasFlag(fld.access_flags, classparser.MemberAccessFlags.Static) {
             append(&gc.roots, transmute(^^ObjectHeader)&fld.static_data)                     
         }
+        append(&gc.roots, &fld.field_obj)
     }
 }
 gc_is_ptr_inbounds_of :: proc(chunk: ^Chunk, ptr: rawptr, alignment := GC_ALLIGNMENT) -> bool {
@@ -193,7 +194,7 @@ collection_depth := 0
 gc_collect :: proc (gc: ^GC) {
      stopwatch := time.Stopwatch {}
      time.stopwatch_start(&stopwatch)
-//     if true { return }
+     //if true { return }
 
     //defer delete(objects_to_finalize)
     if collection_depth != 0 {
@@ -212,7 +213,7 @@ gc_collect :: proc (gc: ^GC) {
                 i += GC_ALLIGNMENT
                 continue;
             }
-            if !hasAnyFlags(obj.flags, ObjectHeaderGCFlags.Marked,ObjectHeaderGCFlags.Frozen, ObjectHeaderGCFlags.Finalizing, ObjectHeaderGCFlags.Finalized) {
+            if !hasAnyFlags(obj.flags, ObjectHeaderGCFlags.Marked,ObjectHeaderGCFlags.Frozen, ObjectHeaderGCFlags.Finalizing, ObjectHeaderGCFlags.Finalized) && obj.class.is_finalizable {
                 obj.flags ~= ObjectHeaderGCFlags.Finalizing
                 append(&objects_to_finalize, obj) 
             }
@@ -220,7 +221,7 @@ gc_collect :: proc (gc: ^GC) {
         }
     }
     
-    for chunk in gc.chunks {
+    for chunk, chunki in gc.chunks {
         prev: ^FreePlace = nil
         i := 0
         for i < (chunk.size) {
@@ -307,6 +308,11 @@ shift_c_array :: proc(array: [^]$T, shift: int) -> [^]T {
 }
 gc_alloc_array ::  proc "c" (vm: ^VM, elem_class: ^Class, elems: int, output: ^^ArrayHeader) {
     context = vm.ctx
+    if elem_class.name == "java/lang/Integer" {
+        fmt.println("Array of integers at")
+        print_stack_trace()
+        fmt.println(elems)
+    }
     array_type := make_array_type(vm, elem_class) 
     array_obj: ^ArrayHeader = nil
     gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, i32(size_of(ArrayHeader) + elem_class.size * elems))

@@ -46,7 +46,7 @@ Class_getPrimitiveClass :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHea
     }
     return get_class_object(vm, class) 
 }
-/// forName0 (Ljava/lang/String;ZLjava/lang/ClassLoader;Ljava/lang/Class;)Ljava/lang/Class;
+/// forName0 (Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;
 Class_forName :: proc "c" (name: ^kava.ObjectHeader, initialize: bool, loader: ^kava.ObjectHeader, callerClass: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
@@ -60,7 +60,11 @@ Class_forName :: proc "c" (name: ^kava.ObjectHeader, initialize: bool, loader: ^
         return get_class_object(vm, class)
     }
     else {
-        class = load_class(vm, pathname).value.(^Class)
+        classres := load_class(vm, pathname)
+        if classres.is_err {
+            throw_exception(vm, "java/lang/ClassNotFoundException", pathname) 
+        }
+        class := classres.value.(^Class)
         return get_class_object(vm, class)
     }
 }
@@ -78,4 +82,39 @@ Class_newInstance :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     (transmute(proc "c"(obj: ^ObjectHeader))find_method(class, "<init>", "()V").jitted_body)(newobj)
     return newobj
     
+}
+/// getDeclaredFields0 (Z)[Ljava/lang/reflect/Field;
+Class_getDeclaredFields0 :: proc "c" (this: ^kava.ObjectHeader, publicOnly: bool) -> ^kava.ArrayHeader {
+    using kava
+    context = vm.ctx
+    field_class := vm.classes["java/lang/reflect/Field"]
+    field_ctor := kava.find_method(field_class, "<init>", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;IILjava/lang/String;[B)V")
+    ctor_proc := transmute(proc "c" (this: ^kava.ObjectHeader, class: ^kava.ObjectHeader, name: ^kava.ObjectHeader, type: ^kava.ObjectHeader, modifiers: i32, slot: i32, signature: ^kava.ObjectHeader, anotations: ^kava.ArrayHeader))(field_ctor.jitted_body)
+    class := vm.classes[javaString_to_string(get_object_field_ref(this, "name")^)]
+    fields := make([dynamic]^kava.ObjectHeader)
+    defer delete(fields)
+    for &field in class.fields {
+        if field.field_obj != nil {
+            append(&fields, field.field_obj)
+        } else {
+            gc_alloc_object(vm, field_class, &field.field_obj)
+            name_str: ^ObjectHeader = nil
+            gc_alloc_string(vm, field.name, &name_str)
+            field_type: ^Class = nil 
+            if field.type != nil {
+                field_type = field.type.(^Class)
+            } else {
+                field_type = load_class(vm, field.descriptor).value.(^Class)
+            }
+            ctor_proc(field.field_obj, this, name_str, get_class_object(vm, field_type), i32(field.access_flags), 0, nil, nil)
+            append(&fields, field.field_obj)
+        }
+    }
+    fields_array: ^kava.ArrayHeader = nil
+    gc_alloc_array(vm, vm.classes["java/lang/reflect/Field"], len(fields), &fields_array)
+    fields_slice := kava.array_to_slice(^ObjectHeader, fields_array)
+    for fld, i in fields {
+        fields_slice[i] = fld 
+    }
+    return fields_array
 }

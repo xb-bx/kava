@@ -169,7 +169,6 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
     argi = 0
     locali = 1
     if(!hasFlag(target.access_flags, MethodAccessFlags.Static)) {
-//         int3(&assembler)
         mov(&assembler, rax, at(rbp, locals[0]))
         ctx.stack_count += 1
         mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
@@ -287,7 +286,7 @@ replace_body :: proc(vm: ^VM, method: ^Method, procptr: rawptr) {
     mov(&assembler, Reg64.Rax, transmute(int)procptr)
     jmp(&assembler, Reg64.Rax)
     if method.jitted_body != nil {
-//         executable_free(&vm.exe_allocator, method.jitted_body)
+         executable_free(&vm.exe_allocator, method.jitted_body)
     }
     method.jitted_body = exealloc_alloc(&vm.exe_allocator, len(assembler.bytes))
     for b, i in assembler.bytes {
@@ -401,12 +400,13 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 if typ == nil {
                     panic("")
                 }
+                fld.descriptor = typ.(string)
                 fld.name = name.(string)
-                t, _ := type_descriptor_to_type(vm, typ.(string))
-                if t.is_err {
-                    return t
-                }
-                fld.type = t.value.(^Class)
+                //t, _ := type_descriptor_to_type(vm, typ.(string))
+                //if t.is_err {
+                    //return t
+                //}
+                //fld.type = t.value.(^Class)
                 class.fields[i] = fld
                 if !hasFlag(fld.access_flags, MemberAccessFlags.Static) {
                     append(&instance_fields, &class.fields[i]) 
@@ -448,7 +448,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                     prepare_lazy_bootstrap(vm, &method)
                 }
             }
-            gc_add_static_fields(vm.gc, class)
+            gc_add_field_roots(vm.gc, class)
             return Ok(string, class) 
         }
     }
@@ -610,6 +610,8 @@ type_descriptor_to_type :: proc(vm: ^VM, descriptor: string) -> (shared.Result(^
                 return Ok(string, res.value.(^Class)), read
             }
     }
+    print_stack_trace()
+    fmt.println(descriptor)
     panic("Should not happen")
 }
 determine_if_class_is_finalizable :: proc(class: ^Class) {

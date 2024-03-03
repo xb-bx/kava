@@ -19,10 +19,12 @@ ClassType :: enum {
 }
 Field :: struct {
     name: string,
-    type: ^Class,
+    descriptor: string,
+    type: Maybe(^Class),
     access_flags: classparser.MemberAccessFlags,
     offset: i32,
     static_data: int,
+    field_obj: ^ObjectHeader,
 
 }
 Method :: struct {

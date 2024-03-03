@@ -135,18 +135,36 @@ main :: proc() {
     for prim in PrimitiveType {
         make_primitive(vm, prim, primitive_names[prim], primitive_sizes[prim])
     }
+    _ = load_class(vm , "java/lang/String")
+    _ = load_class(vm , "java/lang/Class")
     app := load_class(vm, application)
 
 
     if app.is_err {
         error(app.error.(string))
     }
+    if dump_jitted_class != "" {
+        dump_class := load_class(vm, dump_jitted_class).value.(^Class)
+        dump_method := find_method(dump_class, dump_jitted_method, dump_jitted_descriptor)
+        if dump_method == nil {
+            error("Method %s:%s:%s not found", dump_jitted_class, dump_jitted_method, dump_jitted_descriptor)
+        }
+        body_size: int = 0
+        body := jit_method_lazy(vm, dump_method, &body_size) 
+        assert(os.write_entire_file("dump.bin", slice.bytes_from_ptr(body, body_size)))
+    }
+
     stopwatch := time.Stopwatch {}
+    classinit := find_method(app.value.(^Class), "<clinit>", "()V")
+    if classinit != nil {
+        (transmute(proc "c" ())(classinit.jitted_body))()
+    }
 
     mainMethod := find_method(app.value.(^Class), "main", "([Ljava/lang/String;)V")
     if mainMethod == nil {
         error("Could not find entry point")
     }
+
     args_array: ^ArrayHeader = nil
     gc_alloc_array(vm, vm.classes["java/lang/String"], len(applicationargs), &args_array)
     args_slice := array_to_slice(^ObjectHeader, args_array)
@@ -159,21 +177,12 @@ main :: proc() {
     
     stopwatch = time.Stopwatch {}
     time.stopwatch_start(&stopwatch)
-    if dump_jitted_class != "" {
-        dump_class := load_class(vm, dump_jitted_class).value.(^Class)
-        dump_method := find_method(dump_class, dump_jitted_method, dump_jitted_descriptor)
-        if dump_method == nil {
-            error("Method %s:%s:%s not found", dump_jitted_class, dump_jitted_method, dump_jitted_descriptor)
-        }
-        body_size: int = 0
-        body := jit_method_lazy(vm, dump_method, &body_size) 
-        assert(os.write_entire_file("dump.bin", slice.bytes_from_ptr(body, body_size)))
-    }
     
     ((transmute(proc "c" (args: ^ArrayHeader))mainMethod.jitted_body))(args_array)
     time.stopwatch_stop(&stopwatch)
     dur := time.stopwatch_duration(stopwatch)
     fmt.println("Execution took", dur)
+    fmt.println(len(vm.classes))
 
 //     for k,v in vm.classes {
 //         fmt.println(k, "=", v.name, v.class_type)
@@ -195,6 +204,7 @@ Object_getClass:: proc "c" (this: ^kavavm.ObjectHeader) -> rawptr {
 Object_registerNatives :: proc "c" () {
     using kavavm
     context = vm.ctx 
+    obj: ^ObjectHeader = nil
 //     fmt.println("Object native")
 }
 Class_getPrimitiveClass :: proc "c" () -> rawptr {
