@@ -1580,7 +1580,7 @@ print_class_info :: proc(class: ClassFile) {
                 fmt.printf("#%i invokedynamic info %s:%s\n", i+1, name.str, type.str)
             case MethodHandleInfo:
                 handle := info.(MethodHandleInfo)
-                fmt.printf("#%i methodhandle info %s\n", i+1, handle.reference_kind)
+                fmt.printf("#%i methodhandle info of %i of %s\n", i+1, handle.reference_index, handle.reference_kind)
             case MethodTypeInfo:
                 type := info.(MethodTypeInfo) 
                 descriptor := class.constant_pool[type.descriptor_index - 1].(UTF8Info).str
@@ -1624,7 +1624,13 @@ print_class_info :: proc(class: ClassFile) {
             fmt.println(method.bytecode.(CodeAttribute).exception_table)
         }
     }
-
+    fmt.println("Bootstrap methods: ")
+    for method in class.bootstrap_methods {
+        fmt.println("  ", method.bootstrap_method_ref)
+        for arg in method.bootstrap_arguments {
+            fmt.println("    ",arg)
+        }
+    }
     fmt.println(class.attributes)
 }
 

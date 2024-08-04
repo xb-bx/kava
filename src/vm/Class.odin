@@ -57,6 +57,7 @@ Class :: struct {
     size_without_header: int,
     class_initializer_called: bool,
     is_finalizable: bool,
+    strings: map[u16]^ObjectHeader,
 }
 ExceptionInfo :: struct {
     start: int,

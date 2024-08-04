@@ -3,7 +3,7 @@ import "core:sys/unix"
 import "core:fmt"
 import "core:strings"
 import "core:slice"
-import "core:runtime"
+import "base:runtime"
 import "kava:shared"
 import "core:mem"
 

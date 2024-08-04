@@ -4,7 +4,7 @@ import "kava:classparser"
 import "kava:shared"
 import "core:fmt"
 import "core:sys/unix"
-import "core:runtime"
+import "base:runtime"
 import "core:strings"
 import "core:math"
 import "core:mem/virtual"
@@ -335,6 +335,18 @@ jit_array_store :: proc(using ctx: ^JittingContext, instruction: classparser.Ins
             mov(assembler, at(rax, r10, size_of(ArrayHeader), 8), r9)
     }
 }
+jit_load_string_const :: proc "c" (vm: ^VM, class: ^Class, const: u16) -> ^ObjectHeader {
+    using classparser
+    context = vm.ctx
+    //str_index := const.(classparser.StringInfo).string_index
+    str := resolve_utf8(class.class_file, const).(string)
+    strobj :^ObjectHeader= nil
+    gc_alloc_string(vm, str, &strobj)
+    strobj = intern(&vm.internTable, strobj)
+    //append(&vm.gc.temp_roots, strobj)
+    //mov(assembler, rax, transmute(int)strobj)
+    return strobj
+}
 jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     using classparser
     using x86asm 
@@ -460,11 +472,29 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                         mov(assembler, rax, transmute(int)cast(i64)const.(classparser.IntegerInfo).value)  
                     case StringInfo:
                         str_index := const.(classparser.StringInfo).string_index
-                        str := resolve_utf8(method.parent.class_file, str_index).(string)
-                        strobj :^ObjectHeader= nil
-                        gc_alloc_string(vm, str, &strobj)
-                        append(&vm.gc.temp_roots, strobj)
-                        mov(assembler, rax, transmute(int)strobj)
+                        if str_index in method.parent.strings {
+                            mov(assembler, rax, transmute(int)method.parent.strings[str_index])
+                        } else {
+                            str := resolve_utf8(method.parent.class_file, str_index).(string)
+                            strobj :^ObjectHeader= nil
+                            gc_alloc_string(vm, str, &strobj)
+                            strobj = intern(&vm.internTable, strobj)
+                            mov(assembler, rax, transmute(int)strobj)
+                            method.parent.strings[str_index] = strobj
+                        }
+                        //str := resolve_utf8(method.parent.class_file, str_index).(string)
+                        //strobj :^ObjectHeader= nil
+                        //gc_alloc_string(vm, str, &strobj)
+                        //strobj = intern(&vm.internTable, strobj)
+                        ////append(&vm.gc.temp_roots, strobj)
+                        //mov(assembler, rax, transmute(int)strobj)
+                        //mov(assembler, reg_args[0], transmute(int)vm)
+                        //mov(assembler, reg_args[1], transmute(int)method.parent)
+                        //mov(assembler, reg_args[2], cast(int)str_index)
+                        
+                        //mov(assembler, rax, transmute(int)jit_load_string_const)
+                        //call(assembler, rax)
+
                     case ClassInfo:
                         class := load_class(vm, method.parent.class_file.constant_pool[const.(classparser.ClassInfo).name_index - 1].(classparser.UTF8Info).str).value.(^Class)
                         obj := get_class_object(vm, class)
@@ -938,12 +968,6 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, parameter_registers[0], transmute(int)vm)
                 cls := get_class(vm, method.parent.class_file, index).value.(^Class)
-            
-//                 typ := make_array_type(vm, cls)
-//                 fmt.println("TYPE: ", typ.name, ctx.method.name, ctx.method.parent.name, cls.name)
-//                 if cls.name == "java/lang/Object" && method.name == "<init>" && method.parent.name == "java/util/ArrayList" {
-//                     int3(assembler)
-//                 }
                 mov(assembler, parameter_registers[1], transmute(int)cls)
                 mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
                 lea(assembler, parameter_registers[3], at(rbp, stack_base - 8 * stack_count))

@@ -4,13 +4,21 @@ TODO:
 - [X] Class parser
 - [X] Type system
 - [X] .jar loading
-- [ ] JIT(WIP ~30% done)
+- [ ] JIT(WIP ~50% done)
 - [ ] JNI
 - [X] GC
 - [ ] Multithreading
 
 Goals:
 - [ ] Run Minecraft
+
+# Building 
+run 
+```sh
+make all
+```
+## on Windows
+use [Cygwin](https://www.cygwin.com/)
 
 
 ### Debugging with gdb

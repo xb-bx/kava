@@ -7,7 +7,7 @@ import "core:fmt"
 import "core:strings"
 import "core:path/filepath"
 import "core:path/slashpath"
-import "core:intrinsics"
+import "base:intrinsics"
 import "core:slice"
 import "core:time"
 import "zip:zip"
@@ -17,14 +17,6 @@ import "core:sys/unix"
 import "core:unicode/utf16"
 import kavavm "kava:vm"
 
-// foreign import native_methods "native.o"
-// foreign native_methods {
-// //     @(linkage="weak")
-//     @(link_name="initialize_all") _initialize_all :: proc (vm: ^VM) ---
-// }
-// initialize_all :: proc(vm: ^VM) {
-//     _initialize_all(vm)
-// }
 
 error :: proc(str: string, args: ..any) {
     fmt.printf(str, ..args)
@@ -128,6 +120,7 @@ main :: proc() {
         native_intitializers = make(map[string]proc()),
         exe_allocator = {},
     })
+    intern_init(&vm.internTable)
     exealloc_init(&vm.exe_allocator)
     prepare_after_jitted(vm)
     prepare_before_jitted(vm)
@@ -182,32 +175,6 @@ main :: proc() {
     time.stopwatch_stop(&stopwatch)
     dur := time.stopwatch_duration(stopwatch)
     fmt.println("Execution took", dur)
-    fmt.println(len(vm.classes))
-
-//     for k,v in vm.classes {
-//         fmt.println(k, "=", v.name, v.class_type)
-//         for field in v.fields {
-//             fmt.println(field.name, "=", field.type.name)
-//         }
-//         for method in v.methods {
-//             fmt.println(method.name, "=", method.ret_type.name)
-//         }
-//     }
 }
 
 
-Object_getClass:: proc "c" (this: ^kavavm.ObjectHeader) -> rawptr {
-    using kavavm
-    context = vm.ctx
-    return get_class_object(vm, this.class)
-}
-Object_registerNatives :: proc "c" () {
-    using kavavm
-    context = vm.ctx 
-    obj: ^ObjectHeader = nil
-//     fmt.println("Object native")
-}
-Class_getPrimitiveClass :: proc "c" () -> rawptr {
-    using kavavm
-    return nil
-}

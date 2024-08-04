@@ -1,9 +1,5 @@
-build
-*.bin
-nobuild.odin
 *.class
-odin-zip
-x86asm
 *.generated.odin
 cache/*
-jre
+bin/
+libs/

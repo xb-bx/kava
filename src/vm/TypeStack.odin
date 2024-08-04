@@ -1,4 +1,5 @@
 package vm
+import "core:fmt"
 StackType :: struct {
     class: ^Class,
     is_null: bool,
@@ -27,6 +28,9 @@ stack_pop :: proc(using stack: ^TypeStack) -> ^StackType {
 stack_push :: proc(using stack: ^TypeStack, type: ^Class, is_null: bool = false) -> bool {
     if count == cap {
         return false
+    }
+    if type == nil && is_null == false {
+        fmt.println("smth wrong")
     }
     types[count].class = type
     types[count].is_null = is_null

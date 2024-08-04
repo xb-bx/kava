@@ -1,12 +1,11 @@
 package shared
 import "core:fmt"
-import "core:runtime"
+import "base:runtime"
 Result :: struct($TOk: typeid, $TErr: typeid) {
     value: Maybe(TOk),
     error: Maybe(TErr),
     is_ok: bool,
     is_err: bool,
-    
 }
 Ok :: proc($TErr: typeid, value: $TOk) -> Result(TOk, TErr) {
     return Result(TOk, TErr) {

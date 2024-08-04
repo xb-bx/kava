@@ -85,6 +85,26 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
         str: ^kava.ObjectHeader = nil 
         kava.gc_alloc_string(vm, "true", &str)
         return str
+    } else if prop == "sun.io.useCanonCaches" {
+        str: ^kava.ObjectHeader = nil 
+        kava.gc_alloc_string(vm, "true", &str)
+        return str
+    } else if prop == "sun.io.useCanonPrefixCache" {
+        str: ^kava.ObjectHeader = nil 
+        kava.gc_alloc_string(vm, "true", &str)
+        return str
+    } else if prop == "file.separator" {
+        str: ^kava.ObjectHeader = nil 
+        kava.gc_alloc_string(vm, "/", &str)
+        return str
+    } else if prop == "path.separator" {
+        str: ^kava.ObjectHeader = nil 
+        kava.gc_alloc_string(vm, ":", &str)
+        return str
+    } else if prop == "java.home" {
+        str: ^kava.ObjectHeader = nil 
+        kava.gc_alloc_string(vm, "", &str)
+        return str
     }
     else {
         fmt.println(prop)

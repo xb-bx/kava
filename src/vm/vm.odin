@@ -4,14 +4,86 @@ import "kava:classparser"
 import "zip:zip"
 import "core:fmt"
 import "core:os"
+import "core:time"
 import "core:strings"
 import "core:path/filepath"
 import "core:slice"
-import "core:intrinsics"
-import "core:runtime"
+import "base:intrinsics"
+import "base:runtime"
 import "core:sys/windows"
 import "x86asm:x86asm"
 import "core:unicode/utf16"
+InternHashTable :: struct {
+    buckets: []InternBucket,
+}
+InternBucket :: struct {
+    strings: [dynamic]^ObjectHeader,
+}
+String_hashCode: proc "c" (this: ^ObjectHeader) -> i32
+String_ctor: proc "c" (this: ^ObjectHeader, other: ^ObjectHeader)
+hashOffset := 0
+intern_init :: proc(table: ^InternHashTable) {
+    table.buckets = make([]InternBucket, 100)
+    for &buck in table.buckets {
+        buck.strings = make([dynamic]^ObjectHeader)
+    }
+}
+intern :: proc(internTable: ^InternHashTable, str: ^ObjectHeader) -> ^ObjectHeader {
+    if String_hashCode == nil 
+    {
+        String_hashCode = transmute(proc "c" (this: ^ObjectHeader) -> i32)find_method(str.class, "hashCode", "()I").jitted_body
+        String_ctor = transmute(proc "c" (this: ^ObjectHeader, other: ^ObjectHeader))find_method(str.class, "<init>", "(Ljava/lang/String;)V").jitted_body
+        hashOffset = (int)(find_field(str.class, "hash").offset)
+    }
+    buck := &internTable.buckets[abs(int(String_hashCode(str))) % len(internTable.buckets)]
+    res := bucket_add_or_get_string(buck, str)
+    return res
+}
+bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^ObjectHeader {
+    find_str :: proc(list: [dynamic]^ObjectHeader, hash: i32, str: ^ObjectHeader) -> ^ObjectHeader {
+        for item in list {
+            itemHash := (transmute(^i32)(transmute(int)item + hashOffset))^
+            if hash == itemHash do return item
+            else do continue
+        }
+        return nil
+    }
+    find_index :: proc(list: [dynamic]^ObjectHeader, hash: i32) -> int {
+        low := 0
+        high := len(list) - 1
+        for low <= high {
+            mid := (low + high) / 2
+            itemHash := (transmute(^i32)(transmute(int)list[mid] + hashOffset))^
+            if itemHash < hash {
+                low = mid + 1
+            } else if itemHash == hash {
+                return mid
+            } else {
+                high = mid - 1
+            }
+        }
+        return 0
+    }
+
+    hash := String_hashCode(str)
+    found := find_str(bucket.strings, hash, str) 
+    if len(bucket.strings) == 0 {
+        newstr: ^ObjectHeader = nil
+        gc_alloc_object(vm, str.class, &newstr)
+        String_ctor(newstr, str)
+        append(&bucket.strings, newstr)
+        return newstr
+    }
+    else if found == nil {
+        i := find_index(bucket.strings, hash) 
+        newstr: ^ObjectHeader = nil
+        gc_alloc_object(vm, str.class, &newstr)
+        String_ctor(newstr, str)
+        inject_at(&bucket.strings, i, newstr)
+        return newstr
+    }
+    return found
+}
 
 VM :: struct {
     classpaths: []string,
@@ -24,6 +96,7 @@ VM :: struct {
     native_intitializers: map[string]proc(),
     classobj_to_class_map: map[^ObjectHeader]^Class,
     exe_allocator: ExeAllocator,
+    internTable: InternHashTable,
 }
 array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {
@@ -344,6 +417,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 return Err(^Class, fmt.aprintf("Could not find class %s", class_name))
             }
             class := new(Class)
+            class.strings = make(map[u16]^ObjectHeader)
             class.class_file = classfile
             class.access_flags = classfile.access_flags
             if class_name == "java/lang/Object" {
@@ -431,10 +505,10 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 meth.descriptor = typ.(string)
                 meth.access_flags = method.access_flags
                 meth.code = method.bytecode
-                err := parse_method_descriptor(vm, &meth, typ.(string))
-                if err != nil {
-                    return Err(^Class, err.(string))
-                }
+                //err := parse_method_descriptor(vm, &meth, typ.(string))
+                //if err != nil {
+                    //return Err(^Class, err.(string))
+                //}
                 meth.parent = class
                 meth.jitted_body = nil
                 class.methods[i] = meth
@@ -610,9 +684,7 @@ type_descriptor_to_type :: proc(vm: ^VM, descriptor: string) -> (shared.Result(^
                 return Ok(string, res.value.(^Class)), read
             }
     }
-    print_stack_trace()
-    fmt.println(descriptor)
-    panic("Should not happen")
+    return Err(^Class, "Invalid type descriptor"), 0
 }
 determine_if_class_is_finalizable :: proc(class: ^Class) {
     if class.name == "java/lang/Object" {

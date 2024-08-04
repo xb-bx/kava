@@ -361,7 +361,7 @@ type_is_integer :: proc(typ: ^Class) -> bool {
 }
 does_implements_interface :: proc(class: ^Class, interface: ^Class) -> bool {
     for iface in class.interfaces {
-        if iface == interface {
+        if iface == interface || does_implements_interface(iface, interface) {
             return true
         }
     }
@@ -551,7 +551,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 fieldtype := fieldtyperes.value.(^Class)
                 containingType := stack_pop(stack)
                 if typ.class != fieldtype && (!is_stacktype_subtype_of(typ, fieldtype)) && !int_can_implicit_convert(typ, fieldtype) {
-                    //return verification_error("Invalid bytecode. Wrong instance type", this_method, instr)
+                    return verification_error("Invalid bytecode. Wrong instance type", this_method, instr)
                 }
             case .getfield:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
@@ -634,7 +634,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     locals[index] = vm.classes["int"]
                 }
                 else if !type_is_integer(locals[index]) {
-                    //return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
+                    return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
                 }
                 stack_push(stack, locals[index])
             case .lload:
@@ -818,8 +818,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if !is_reference_type(vm, instance.class) {
-                    panic("")
-//                     return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
+                     return verification_error("Invalid bytecode. Expected reference type", this_method, instr)
                 }
                 if !stack_push(stack, typ.value.(^Class)) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
@@ -883,10 +882,9 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if !is_stacktype_subtype_of(value, vm.object) && value.class != vm.object {
                     return verification_error("Invalid bytecode. value must be reference type", this_method, instr)
                 }
-                // TODO fix fail
-                //if !type_is_integer(index) {
-                    //return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
-                //}
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
+                }
                 if  !value.is_null && !is_stacktype_array_of(array, value.class) {
                     fmt.println(value.is_null, value.class.name, array.is_null, array.class.name, array.class.underlaying.name)
                     return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
@@ -1093,8 +1091,12 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     if this == nil {
                         return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                     }
-                    if this.class != method.parent && !does_implements_interface(this.class, method.parent) {
-                        //return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
+                    if this.class != method.parent && !this.is_null && !does_implements_interface(this.class, method.parent) {
+                        fmt.println(method.parent.name, method.name)
+                        for iface in this.class.interfaces {
+                            fmt.println(iface.name)
+                        }
+                        return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
                 }
                 if method.ret_type != vm.classes["void"] {
@@ -1279,7 +1281,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if !arr.is_null && !(arr.class.class_type == ClassType.Array && arr.class.underlaying.class_type != ClassType.Primitive) {
                     return verification_error("Invalid bytecode. Expected array of objects", this_method, instr)
                 }
-                stack_push(stack, arr.class.underlaying)
+                stack_push(stack, arr.is_null ? nil : arr.class.underlaying, arr.is_null)
             case .iaload:
                 index := stack_pop_class(stack)
                 if index == nil {
@@ -1533,9 +1535,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 stack_push(stack, vm.classes["int"])
             case .dsub, .dadd, .dmul, .ddiv:
                 if stack.count < 2 {
-                    fmt.println(stack)
-                    panic("")
-//                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 value2 := stack_pop_class(stack)
                 value1 := stack_pop_class(stack)
@@ -1591,7 +1591,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 value2 := stack_pop_class(stack)
                 value1 := stack_pop_class(stack)
                 if !type_is_integer(value2) || !type_is_integer(value1) {
-                    //return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
+                    return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
             case .arraylength:
@@ -1599,7 +1599,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if array == nil {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
-                if array.class.class_type != ClassType.Array {
+                if array.class.class_type != ClassType.Array && array.is_null == false {
                     return verification_error("Invalid bytecode. Expected array", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
@@ -1639,8 +1639,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
             for local in next.locals {
                 fmt.printf("%s ", local == nil ? "<nil>" : local.name)
             }
-            panic("")
-//             return verification_error("Invalid bytecode. Inconsistent stack", this_method, {})
+            return verification_error("Invalid bytecode. Inconsistent stack", this_method, {})
         }
     }
     return nil

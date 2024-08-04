@@ -1,4 +1,4 @@
-package nobuild 
+package generator 
 import "core:os"
 import "core:fmt"
 import "core:path/filepath"
@@ -7,21 +7,15 @@ import "core:odin/parser"
 import "core:odin/ast"
 import "core:slice"
 import "core:strings"
-when ODIN_OS == .Windows {
-    KAVA_EXE :: "kava.exe"
-    CLASSPARSER_EXE :: "classparser.exe"
-} else {
-    KAVA_EXE :: "kava"
-    CLASSPARSER_EXE:: "classparser"
-}
-generate_native_methods :: proc() {
+
+generate_native_methods :: proc(needs_generation: string) {
     pkg, ok := parser.parse_package_from_path("src/vm/native")
     if !ok {
         fmt.println("fuck")
     }
     classes := make([dynamic]string)
     for name, file in pkg.files {
-        if strings.last_index(name, ".generated.odin") == -1 {
+        if strings.last_index(name, filepath.base(needs_generation)) >= 0 {
             classname_dots := slashpath.name(filepath.base(name), true)
             classname, _ := strings.replace_all(classname_dots, ".", "/")
             classname_underscored, _ := strings.replace_all(classname, "/", "_")
@@ -66,71 +60,41 @@ generate_native_methods :: proc() {
             defer delete(res)
             os.write_entire_file(fmt.aprintf("src/vm/native/%s.generated.odin", classname_dots), slice.bytes_from_ptr(raw_data(res), len(res)))
         }
-        builder: strings.Builder = {}
-        strings.builder_init(&builder)
-        fmt.sbprintln(&builder, "package native")
-        fmt.sbprintln(&builder, "import kava \"kava:vm\"")
-        fmt.sbprintln(&builder, "vm: ^kava.VM = nil")
-        fmt.sbprintln(&builder, "@export")
-        fmt.sbprintln(&builder, "add_initilizers :: proc(vmm: ^kava.VM) {")
-        fmt.sbprintln(&builder, "   vm = vmm")
-        for class in classes {
-            classpath, was_alloc := strings.replace_all(class, "_", "/")
-            defer if was_alloc { delete(classpath) }
-            fmt.sbprintf(&builder, "   vm.native_intitializers[\"%s\"] = initialize_%s\n", classpath, class)
-        }
-        fmt.sbprintln(&builder, "}")
-        res := strings.to_string(builder)
-        defer delete(res)
-        os.write_entire_file("src/vm/native/initialize.generated.odin", slice.bytes_from_ptr(raw_data(res), len(res)))
-
+    
 
     }
+}
+initializer :: proc() {
+    pkg, ok := parser.parse_package_from_path("src/vm/native")
+    if !ok {
+        fmt.println("fuck")
+    }
+    builder: strings.Builder = {}
+    strings.builder_init(&builder)
+    fmt.sbprintln(&builder, "package native")
+    fmt.sbprintln(&builder, "import kava \"kava:vm\"")
+    fmt.sbprintln(&builder, "vm: ^kava.VM = nil")
+    fmt.sbprintln(&builder, "@export")
+    fmt.sbprintln(&builder, "add_initilizers :: proc(vmm: ^kava.VM) {")
+    fmt.sbprintln(&builder, "   vm = vmm")
+    for filename,_ in pkg.files {
+        if strings.last_index(filename, ".generated.odin") != -1 do continue
+        file := filepath.stem(filename)
+        classpath, _ := strings.replace_all(file, ".", "/")
+        class, _ := strings.replace_all(file, ".", "_")
+        fmt.sbprintf(&builder, "   vm.native_intitializers[\"%s\"] = initialize_%s\n", classpath, class)
+    }
+    fmt.sbprintln(&builder, "}")
+    res := strings.to_string(builder)
+    defer delete(res)
+    os.write_entire_file("src/vm/native/initialize.generated.odin", slice.bytes_from_ptr(raw_data(res), len(res)))
 }
 
 main :: proc() {
-    generate_native_methods()
-    if !os.exists("odin-zip") {
-        run("git", "clone", "https://github.com/xb-bx/odin-zip")
-        cd("odin-zip")
-        when ODIN_OS == .Windows {
-            run("build.bat")
-        }
-        else {
-            run("./build.sh")
-        }
-        cd("..")
+    if os.args[1] == "initializer" {
+        initializer()
     }
-    if !os.exists("x86asm") {
-        run("git", "clone", "https://github.com/xb-bx/x86asm")
-    }
-    args := os.args[1:]
-    collections: map[string]string = {"zip" = "odin-zip/src",  "kava" = "src", "libzip" = "odin-zip/libzip", "x86asm" = "x86asm/src" }
-    when ODIN_OS == .Windows {
-        additional := [?]string { "-debug", "-extra-linker-flags:/STACK:4194304"}
-    } else {
-        additional := [?]string { "-debug" }
-    }
-    odin_build("src/classparser", output = CLASSPARSER_EXE, collections = collections, additional_args = additional[:])
-    odin_build("src/kava", output = KAVA_EXE, collections = collections, additional_args = additional[:], optimization = Optimization.none)
-    when ODIN_OS == .Linux {
-        odin_build("src/gdbplugin", "gdbplugin.so", collections, additional_args = additional[:], build_mode = .Dynamic)
-    }
-    
-    javas := make([dynamic]string)
-    append(&javas, "-cp")
-    append(&javas, "jre")
-    list_all_java_files_recursively("runtime", &javas)
-    run("javac", ..javas[:])
-}
-list_all_java_files_recursively :: proc (path: string, acc: ^[dynamic]string) {
-    files := list_files(path)
-    for file in files {
-        if file.is_dir {
-            list_all_java_files_recursively(file.fullpath, acc)
-        }
-        else if filepath.ext(file.fullpath) == ".java" {
-            append(acc, file.fullpath)
-        }
+    else {
+        generate_native_methods(os.args[1])
     }
 }

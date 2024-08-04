@@ -4,7 +4,7 @@ import "core:unicode/utf16"
 import "core:slice"
 import "core:fmt"
 import "kava:classparser"
-import "core:runtime"
+import "base:runtime"
 import "core:time"
 import "core:unicode/utf8"
 
@@ -160,7 +160,7 @@ gc_visit_ptr :: proc(gc: ^GC, root: rawptr) {
 //     fmt.println("success visit ptr", objheader.class.name)
     gc_visit_obj(gc, objheader)
 }
-gc_visit_roots :: proc(gc: ^GC) {
+gc_visit_roots :: proc(using vm: ^VM) {
     for root in gc.roots {
         gc_visit_ptr(gc, transmute(rawptr)root^)
 
@@ -168,6 +168,13 @@ gc_visit_roots :: proc(gc: ^GC) {
     for root in gc.temp_roots {
         gc_visit_ptr(gc, transmute(rawptr)root)
     }
+    for internBucket in internTable.buckets {
+        for str in internBucket.strings {
+            gc_visit_ptr(gc, str)
+
+        }
+    }
+    
 }
 gc_visit_stack :: proc(gc: ^GC) {
     e: StackEntry = {}
@@ -183,7 +190,7 @@ gc_visit_stack :: proc(gc: ^GC) {
     }
 }
 gc_mark_all_objects :: proc (gc: ^GC) {
-    gc_visit_roots(gc)
+    gc_visit_roots(vm)
     gc_visit_stack(gc)
     for obj in objects_to_finalize {
         gc_visit_obj(gc, obj)
@@ -308,11 +315,6 @@ shift_c_array :: proc(array: [^]$T, shift: int) -> [^]T {
 }
 gc_alloc_array ::  proc "c" (vm: ^VM, elem_class: ^Class, elems: int, output: ^^ArrayHeader) {
     context = vm.ctx
-    if elem_class.name == "java/lang/Integer" {
-        fmt.println("Array of integers at")
-        print_stack_trace()
-        fmt.println(elems)
-    }
     array_type := make_array_type(vm, elem_class) 
     array_obj: ^ArrayHeader = nil
     gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, i32(size_of(ArrayHeader) + elem_class.size * elems))
