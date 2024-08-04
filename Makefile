@@ -28,11 +28,19 @@ endif
 GDBPLUGIN=bin/gdbplugin.so
 JRE=bin/jre
 
+
 .PHONY: phony
-BREAKPOINT: phony
-	@if [[ `cat BREAKPOINT` != '$(BREAKPOINT)' ]]; then \
-		echo -n '$(BREAKPOINT)' > BREAKPOINT ; \
+define DEPENDABLE_VAR
+$1: phony
+	@# 4 dollar-signs in a row to attract money 
+	@if [ -f $1 ]; then VALUE=`cat $1`; else VALUE=""; fi; \
+	if [[ "$$$$VALUE" != '$($1)' ]]; then \
+		echo -n '$($1)' > $1; \
 	fi
+endef
+
+$(eval $(call DEPENDABLE_VAR,BREAKPOINT))
+$(eval $(call DEPENDABLE_VAR,ODIN_FLAGS))
 
 all: $(KAVA) $(CLASSPARSER) $(GDBPLUGIN) $(JRE)
 
@@ -75,13 +83,13 @@ bin/runtime/%.class: src/runtime/%.java $(JRE)
 
 	
 CLASSPARSER_SRC=src/classparser/*.odin src/shared/*.odin
-$(CLASSPARSER): $(CLASSPARSER_SRC) libs/odin-zip libs/x86asm
+$(CLASSPARSER): $(CLASSPARSER_SRC) ODIN_FLAGS libs/odin-zip libs/x86asm
 	@mkdir -p bin
 	odin build src/classparser $(COLLECTIONS_FLAGS) $(ODIN_FLAGS) -out:$@
 
 KAVA_SRC=src/kava/*.odin src/vm/*.odin src/vm/native/*.odin src/shared/*.odin
 
-$(KAVA): BREAKPOINT libs/odin-zip libs/x86asm $(GENERATED) src/vm/native/initialize.generated.odin $(KAVA_SRC) $(CLASSPARSER_SRC) $(RUNTIME_CLASSES)
+$(KAVA): BREAKPOINT ODIN_FLAGS libs/odin-zip libs/x86asm $(GENERATED) src/vm/native/initialize.generated.odin $(KAVA_SRC) $(CLASSPARSER_SRC) $(RUNTIME_CLASSES)
 	@mkdir -p bin
 ifdef BREAKPOINT
 	odin build src/kava $(COLLECTIONS_FLAGS) $(ODIN_FLAGS) -out:$@ \
@@ -92,7 +100,7 @@ else
 	odin build src/kava $(COLLECTIONS_FLAGS) $(ODIN_FLAGS) -out:$@
 endif
 
-$(GDBPLUGIN): src/gdbplugin/*.odin libs/odin-zip libs/x86asm
+$(GDBPLUGIN): ODIN_FLAGS src/gdbplugin/*.odin libs/odin-zip libs/x86asm
 	@mkdir -p bin
 	odin build src/gdbplugin -build-mode:dynamic -out:$@ $(COLLECTIONS_FLAGS) $(ODIN_FLAGS)
 

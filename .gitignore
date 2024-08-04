@@ -4,3 +4,4 @@ cache/*
 bin/
 libs/
 BREAKPOINT
+ODIN_FLAGS
