@@ -31,7 +31,6 @@ when ODIN_OS == .Linux {
 print_usage :: proc() {
     fmt.println("usage: kava [-options] class [args...]")
 }
-vm: ^kavavm.VM = nil
 get_executable_path :: proc () -> string {
     when ODIN_OS == .Linux {
         buf := make([]u8, 512)

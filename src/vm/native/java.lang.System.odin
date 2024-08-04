@@ -4,6 +4,7 @@ import kava "kava:vm"
 import "core:unicode/utf16"
 import "core:strings"
 import "core:fmt"
+import "core:os"
 
 /// identityHashCode (Ljava/lang/Object;)I 
 System_identityHashCode :: proc(obj: ^kava.ObjectHeader) -> i32 {
@@ -104,6 +105,12 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     } else if prop == "java.home" {
         str: ^kava.ObjectHeader = nil 
         kava.gc_alloc_string(vm, "", &str)
+        return str
+    } else if prop == "user.dir" {
+        str: ^kava.ObjectHeader = nil 
+        home_dir := os.get_env("HOME")
+        kava.gc_alloc_string(vm, home_dir, &str)
+        delete(home_dir)
         return str
     }
     else {

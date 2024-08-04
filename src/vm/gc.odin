@@ -110,6 +110,9 @@ gc_is_ptr_inbounds_of :: proc(chunk: ^Chunk, ptr: rawptr, alignment := GC_ALLIGN
     }
     return iptr >= start && iptr < end
 }
+gc_is_alloced_by_gc :: proc(gc: ^GC, ptr: rawptr) -> bool {
+    return gc_chunk_of_pointer(gc, ptr) != nil
+}
 gc_chunk_of_pointer :: proc(gc: ^GC, ptr: rawptr) -> ^Chunk {
     for chunk in gc.chunks {
         if(gc_is_ptr_inbounds_of(chunk, ptr)) {

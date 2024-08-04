@@ -13,6 +13,9 @@ import "core:path/filepath"
 import "core:slice"
 
 ENABLE_GDB_DEBUGGING :: #config(ENABLE_GDB_DEBUGGING, true)
+BREAKPOINT_METHOD_NAME :: #config(BREAKPOINT_METHOD_NAME, "")
+BREAKPOINT_CLASS_NAME :: #config(BREAKPOINT_CLASS_NAME, "")
+BREAKPOINT_METHOD_DESCRIPTOR :: #config(BREAKPOINT_METHOD_DESCRIPTOR, "")
 
 JittingContext :: struct {
     vm: ^VM,
@@ -117,6 +120,8 @@ jit_method_lazy :: proc "c" (vm: ^VM, method: ^Method, body_size: ^int = nil) ->
     }
     return method.jitted_body
 }
+@export
+@(link_name="jit_vm")
 vm : ^VM = nil
 jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
     using x86asm 
@@ -127,6 +132,9 @@ jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
         init_asm(&assembler, true)
     } else {
         init_asm(&assembler, false)
+    }
+    if method.name == BREAKPOINT_METHOD_NAME && method.parent.name == BREAKPOINT_CLASS_NAME && method.descriptor == BREAKPOINT_METHOD_DESCRIPTOR {
+        int3(&assembler)
     }
     locals := jit_method_prolog(method, &codeblocks[0], &assembler)
     labels := make(map[int]Label)
@@ -152,9 +160,6 @@ jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
     if method.name == "<clinit>" {
         mov(&assembler, r10, transmute(int)&method.parent.class_initializer_called)
         movsx(&assembler, at(r10), i32(1))
-    }
-    if method.name == "<clinit>" && method.parent.name == "java/lang/Integer$IntegerCache" && method.descriptor == "()V" {
-         //int3(&assembler)
     }
     when ENABLE_GDB_DEBUGGING {
         file, handle := jit_create_bytecode_file_for_method(method)
@@ -530,18 +535,30 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 cmp(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 jgt(assembler, labels[start])
-            case .if_icmpeq, .if_acmpeq:
+            case .if_icmpeq:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
-                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                cmp(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2)))
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 je(assembler, labels[start])
-            case .if_acmpne, .if_icmpne:
+            case .if_icmpne:
+                start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                stack_count -= 2
+                mov(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, eax, at(rbp, stack_base - 8 * (stack_count + 2)))
+                jne(assembler, labels[start])
+            case .if_acmpne:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 stack_count -= 2
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 cmp(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2)))
                 jne(assembler, labels[start])
+            case .if_acmpeq:
+                start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
+                stack_count -= 2
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                cmp(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 2)))
+                je(assembler, labels[start])
             case .goto, .goto_w:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 jmp(assembler, labels[start])

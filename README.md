@@ -23,8 +23,14 @@ use [Cygwin](https://www.cygwin.com/)
 
 ### Debugging with gdb
 
-1. Build the project
-2. Start gdb
-3. run `jit-reader-load <path/to/kava>/gdbplugin.so`.
+- Build the project. 
+Optionally you can build project with BREAKPOINT variable. The jit will insert int3 instruction at the start of the specified method. 
+    ```sh
+    BREAKPOINT='CLASS:METHOD:DESCRIPTOR' make all
+    ```
 
-Now when you will step into jitted function you will see java bytecode
+- Start gdb. 
+- When you will step into jitted function you will be able to see java bytecode. 
+And also you can use command 'kava-locals' to print local variables.
+#### For whatever reason debugging with src/gdbplugin doesnt work in latest gdb. Should work fine in gdb 11
+

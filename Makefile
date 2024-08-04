@@ -28,6 +28,12 @@ endif
 GDBPLUGIN=bin/gdbplugin.so
 JRE=bin/jre
 
+.PHONY: phony
+BREAKPOINT: phony
+	@if [[ `cat BREAKPOINT` != '$(BREAKPOINT)' ]]; then \
+		echo -n '$(BREAKPOINT)' > BREAKPOINT ; \
+	fi
+
 all: $(KAVA) $(CLASSPARSER) $(GDBPLUGIN) $(JRE)
 
 $(NATIVEGENERATOR): src/native-generator.odin
@@ -41,7 +47,7 @@ src/vm/native/initialize.generated.odin: $(GENERATED) $(NATIVEGENERATOR)
 libs/odin-zip: 
 	mkdir -p libs
 	git clone https://github.com/xb-bx/odin-zip $@
-	if [ "$(OS)" = "Windows_NT" ]; then\
+	@if [ "$(OS)" = "Windows_NT" ]; then\
 		cd libs/odin-zip; ./build.bat;\
 	else \
 		cd libs/odin-zip; ./build.sh; \
@@ -51,7 +57,7 @@ libs/x86asm:
 	git clone https://github.com/xb-bx/x86asm $@
 
 $(JRE):
-	mkdir $(JRE)
+	mkdir -p $(JRE)
 	wget $(JRE_URL) -O $(JRE)/jre.tar.gz
 	@if [ $(OS) = "Windows_NT" ]; then \
 		unzip -o $(JRE)/jre.tar.gz -d $(JRE); \
@@ -62,25 +68,32 @@ $(JRE):
 	ls -1a $(JRE)/*.jar | xargs -I {} unzip -o -d $(JRE) {}
 
 
-bin/runtime: 
-	mkdir -p bin/runtime
 RUNTIME_CLASSES=$(shell find src/runtime -type f -name "*.java" | sed "s/.java$$/.class/" | sed "s|src|bin|")
-bin/runtime/%.class: src/runtime/%.java $(JRE) bin/runtime 
+bin/runtime/%.class: src/runtime/%.java $(JRE) 
+	@mkdir -p bin/runtime
 	javac -sourcepath . -cp $(JRE) $< -d bin/runtime
 
 	
-bin:
-	mkdir bin
 CLASSPARSER_SRC=src/classparser/*.odin src/shared/*.odin
-$(CLASSPARSER): bin $(CLASSPARSER_SRC) libs/odin-zip libs/x86asm
+$(CLASSPARSER): $(CLASSPARSER_SRC) libs/odin-zip libs/x86asm
+	@mkdir -p bin
 	odin build src/classparser $(COLLECTIONS_FLAGS) $(ODIN_FLAGS) -out:$@
 
 KAVA_SRC=src/kava/*.odin src/vm/*.odin src/vm/native/*.odin src/shared/*.odin
 
-$(KAVA): bin libs/odin-zip libs/x86asm $(GENERATED) src/vm/native/initialize.generated.odin src/kava/*.odin $(KAVA_SRC) $(CLASSPARSER_SRC) $(RUNTIME_CLASSES)
+$(KAVA): BREAKPOINT libs/odin-zip libs/x86asm $(GENERATED) src/vm/native/initialize.generated.odin $(KAVA_SRC) $(CLASSPARSER_SRC) $(RUNTIME_CLASSES)
+	@mkdir -p bin
+ifdef BREAKPOINT
+	odin build src/kava $(COLLECTIONS_FLAGS) $(ODIN_FLAGS) -out:$@ \
+		-define:BREAKPOINT_CLASS_NAME='$(shell echo '$(BREAKPOINT)' | cut -d':' -f1)' \
+		-define:BREAKPOINT_METHOD_NAME='$(shell echo '$(BREAKPOINT)' | cut -d':' -f2)' \
+		-define:BREAKPOINT_METHOD_DESCRIPTOR='$(shell echo '$(BREAKPOINT)' | cut -d':' -f3)'
+else
 	odin build src/kava $(COLLECTIONS_FLAGS) $(ODIN_FLAGS) -out:$@
+endif
 
-$(GDBPLUGIN): bin src/gdbplugin/*.odin libs/odin-zip libs/x86asm
+$(GDBPLUGIN): src/gdbplugin/*.odin libs/odin-zip libs/x86asm
+	@mkdir -p bin
 	odin build src/gdbplugin -build-mode:dynamic -out:$@ $(COLLECTIONS_FLAGS) $(ODIN_FLAGS)
 
 .PHONY: clean
