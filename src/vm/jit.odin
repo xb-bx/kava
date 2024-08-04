@@ -340,18 +340,6 @@ jit_array_store :: proc(using ctx: ^JittingContext, instruction: classparser.Ins
             mov(assembler, at(rax, r10, size_of(ArrayHeader), 8), r9)
     }
 }
-jit_load_string_const :: proc "c" (vm: ^VM, class: ^Class, const: u16) -> ^ObjectHeader {
-    using classparser
-    context = vm.ctx
-    //str_index := const.(classparser.StringInfo).string_index
-    str := resolve_utf8(class.class_file, const).(string)
-    strobj :^ObjectHeader= nil
-    gc_alloc_string(vm, str, &strobj)
-    strobj = intern(&vm.internTable, strobj)
-    //append(&vm.gc.temp_roots, strobj)
-    //mov(assembler, rax, transmute(int)strobj)
-    return strobj
-}
 jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     using classparser
     using x86asm 
@@ -476,29 +464,46 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                     case IntegerInfo:
                         mov(assembler, rax, transmute(int)cast(i64)const.(classparser.IntegerInfo).value)  
                     case StringInfo:
-                        str_index := const.(classparser.StringInfo).string_index
-                        if str_index in method.parent.strings {
-                            mov(assembler, rax, transmute(int)method.parent.strings[str_index])
-                        } else {
-                            str := resolve_utf8(method.parent.class_file, str_index).(string)
+                        jit_load_string_const :: proc "c" (class: ^Class, const: u16) -> ^ObjectHeader {
+                            using classparser
+                            context = vm.ctx
+                            str := resolve_utf8(class.class_file, const).(string)
                             strobj :^ObjectHeader= nil
                             gc_alloc_string(vm, str, &strobj)
-                            strobj = intern(&vm.internTable, strobj)
-                            mov(assembler, rax, transmute(int)strobj)
-                            method.parent.strings[str_index] = strobj
+                            class.strings[const] = strobj
+                            return strobj
                         }
-                        //str := resolve_utf8(method.parent.class_file, str_index).(string)
-                        //strobj :^ObjectHeader= nil
-                        //gc_alloc_string(vm, str, &strobj)
-                        //strobj = intern(&vm.internTable, strobj)
-                        ////append(&vm.gc.temp_roots, strobj)
-                        //mov(assembler, rax, transmute(int)strobj)
-                        //mov(assembler, reg_args[0], transmute(int)vm)
-                        //mov(assembler, reg_args[1], transmute(int)method.parent)
-                        //mov(assembler, reg_args[2], cast(int)str_index)
-                        
-                        //mov(assembler, rax, transmute(int)jit_load_string_const)
-                        //call(assembler, rax)
+                        patch :: proc "c" (start: uintptr, len: int, str_index: u16, class: ^Class) -> ^ObjectHeader {
+                            obj := jit_load_string_const(class, str_index)
+                            bytes := transmute([^]u8)start 
+                            bytes[0] = 0x48; bytes[1] = 0xb8; // mov rax, ...
+                            (transmute(^^ObjectHeader)&bytes[2])^ = obj
+                            i := 10
+                            for i < len {
+                                bytes[i] = 0x90 // nop
+                                i+=1
+                            }
+                            return obj
+                            
+                        }
+                        // alloc new string and then patch code to be:
+                        // mov rax, <new_string_addr>
+                        // nop
+                        // ..
+                        // nop
+                        start_index := len(assembler.bytes)
+                        lea_rax_rip := [?]u8 { 0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00 }
+                        str_index := const.(classparser.StringInfo).string_index
+                        append(&assembler.bytes, ..lea_rax_rip[:])
+                        subsx(assembler, rax, i32(len(lea_rax_rip)))
+                        mov(assembler, reg_args[0], rax)
+                        mov(assembler, cast(Reg32)reg_args[2], cast(i32)str_index)
+                        mov(assembler, reg_args[3], transmute(int)method.parent)
+                        mov(assembler, rax, transmute(int)patch)
+                        end_index := len(assembler.bytes) + 2 + 6 // "call rax" is 2 bytes long & "mov R32, len" is 6 bytes long
+                        mov(assembler, cast(Reg32)reg_args[1], cast(i32)(end_index - start_index)) 
+                        call(assembler, rax)
+
 
                     case ClassInfo:
                         class := load_class(vm, method.parent.class_file.constant_pool[const.(classparser.ClassInfo).name_index - 1].(classparser.UTF8Info).str).value.(^Class)
