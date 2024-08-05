@@ -1,6 +1,7 @@
 package native
 import kava "kava:vm"
 import "core:mem"
+import "base:intrinsics"
 /// registerNatives ()V
 Unsafe_registerNatives :: proc "c" () {
     context = vm.ctx
@@ -60,4 +61,47 @@ Unsafe_putLong:: proc "c" (this: ^kava.ObjectHeader, addr: ^int, value: int) {
 Unsafe_getByte :: proc "c" (this: ^kava.ObjectHeader, addr: ^u8) -> u8 {
     return addr^
 }
+/// compareAndSwapObject (Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z
+Unsafe_comapareAndSwapObject :: proc "c" (this: ^kava.ObjectHeader, obj: ^kava.ObjectHeader, offset: int, expect: ^kava.ObjectHeader, update: ^kava.ObjectHeader) -> bool {
+    ptr := transmute(^^kava.ObjectHeader)(transmute(int)obj + offset)
+    _, res := intrinsics.atomic_compare_exchange_strong(ptr, expect, update)
+    return res
+    
+}
+/// compareAndSwapLong (Ljava/lang/Object;JJJ)Z 
+Unsafe_comapareAndSwapLong :: proc "c" (this: ^kava.ObjectHeader, obj: ^kava.ObjectHeader, offset: int, expect: i64, update: i64) -> bool {
+    ptr := transmute(^i64)(transmute(int)obj + offset)
+    _, res := intrinsics.atomic_compare_exchange_strong(ptr, expect, update)
+    return res
+    
+}
+/// compareAndSwapInt (Ljava/lang/Object;JII)Z 
+Unsafe_comapareAndSwapInt :: proc "c" (this: ^kava.ObjectHeader, obj: ^kava.ObjectHeader, offset: int, expect: i32, update: i32) -> bool {
+    ptr := transmute(^i32)(transmute(int)obj + offset)
+    _, res := intrinsics.atomic_compare_exchange_strong(ptr, expect, update)
+    return res
+    
+}
+/// getObjectVolatile (Ljava/lang/Object;J)Ljava/lang/Object;
+Unsafe_getObjectVolatile :: proc "c" (this: ^kava.ObjectHeader, obj: ^kava.ObjectHeader, offset: int) -> ^kava.ObjectHeader {
+    ptr := transmute(^^kava.ObjectHeader)(transmute(int)obj + offset)
+    return intrinsics.volatile_load(ptr)
+}
+/// objectFieldOffset (Ljava/lang/reflect/Field;)J
+Unsafe_objectFieldOffset :: proc "c" (this: ^kava.ObjectHeader, field: ^kava.ObjectHeader) -> i64 {
+    using kava
+    context = vm.ctx
+    class_obj := get_object_field_ref(field, "clazz")^
+    name_obj  := get_object_field_ref(field, "name")^
 
+    class_name := javaString_to_string(get_object_field_ref(class_obj, "name")^)
+    defer delete(class_name)
+
+    field_name := javaString_to_string(name_obj)
+    defer delete(field_name)
+
+    class := vm.classes[class_name]
+    fld := kava.find_field(class, field_name)
+    
+    return i64(fld.offset)
+}

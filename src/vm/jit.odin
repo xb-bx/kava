@@ -864,6 +864,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
             case .f2d:
                 cvtss2sd(assembler, xmm0, at(rbp, stack_base - 8 * stack_count)) 
+                movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
             case .fdiv:
                 stack_count -= 2
                 movss(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))

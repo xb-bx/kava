@@ -1265,7 +1265,23 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if !stack_push(stack, t.class, t.is_null) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
-
+            case .dup2:
+                if stack.count == 0 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                t1 := stack_pop(stack)
+                if is_long_or_double(t1) {
+                    stack_push(stack, t1.class, t1.is_null)
+                    stack_push(stack, t1.class, t1.is_null)
+                    instruct := &cb.code[i - 1].(SimpleInstruction)
+                    instruct.opcode = .dup
+                } else {
+                    t2 := stack_pop(stack)
+                    stack_push(stack, t2.class, t2.is_null)
+                    stack_push(stack, t1.class, t1.is_null)
+                    stack_push(stack, t2.class, t2.is_null)
+                    stack_push(stack, t1.class, t1.is_null)
+                }
             case .aaload:
                 index := stack_pop_class(stack)
                 if index == nil {

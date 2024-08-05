@@ -100,6 +100,7 @@ Class_getDeclaredFields0 :: proc "c" (this: ^kava.ObjectHeader, publicOnly: bool
             gc_alloc_object(vm, field_class, &field.field_obj)
             name_str: ^ObjectHeader = nil
             gc_alloc_string(vm, field.name, &name_str)
+            name_str = intern(&vm.internTable, name_str)
             field_type: ^Class = nil 
             if field.type != nil {
                 field_type = field.type.(^Class)

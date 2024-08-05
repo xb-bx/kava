@@ -28,7 +28,7 @@ intern_init :: proc(table: ^InternHashTable) {
         buck.strings = make([dynamic]^ObjectHeader)
     }
 }
-intern :: proc(internTable: ^InternHashTable, str: ^ObjectHeader) -> ^ObjectHeader {
+intern :: proc (internTable: ^InternHashTable, str: ^ObjectHeader) -> ^ObjectHeader {
     if String_hashCode == nil 
     {
         String_hashCode = transmute(proc "c" (this: ^ObjectHeader) -> i32)find_method(str.class, "hashCode", "()I").jitted_body
@@ -413,7 +413,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 }
             }
             classname := resolve_class_name(classfile, classfile.this_class)
-            if classname == nil || classname.(string) != class_name {
+            if classname == nil {
                 return Err(^Class, fmt.aprintf("Could not find class %s", class_name))
             }
             class := new(Class)
@@ -423,7 +423,6 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
             if class_name == "java/lang/Object" {
                 vm.object = class
             }
-//     fmt.println("loading", class_name)
             vm.classes[class_name] = class
             name := resolve_class_name(classfile, classfile.this_class)
             if name == nil {
