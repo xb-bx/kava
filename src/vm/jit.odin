@@ -834,6 +834,12 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .d2i:
                 cvttsd2si(assembler, eax, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
+            case .d2l:
+                cvttsd2si(assembler, rax, at(rbp, stack_base - 8 * stack_count))
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
+            case .l2f:
+                cvtsi2ss_mem64(assembler, xmm0, at(rbp, stack_base - 8 * stack_count))
+                movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
             case .l2i:
             case .i2l:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
@@ -855,6 +861,9 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .f2i:
                 cvttss2si(assembler, eax, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
+                movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+            case .f2d:
+                cvtss2sd(assembler, xmm0, at(rbp, stack_base - 8 * stack_count)) 
             case .fdiv:
                 stack_count -= 2
                 movss(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
@@ -916,7 +925,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 
                 // NaN check
                 cmpordss(assembler, xmm2, xmm1)
-                cvttss2si(assembler, eax, xmm3)
+                cvttss2si(assembler, eax, xmm2)
                 cmp(assembler, eax, 0)
                 je(assembler, less)
 
@@ -951,7 +960,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 
                 // NaN check
                 cmpordss(assembler, xmm2, xmm1)
-                cvttss2si(assembler, eax, xmm3)
+                cvttss2si(assembler, eax, xmm2)
                 cmp(assembler, eax, 0)
                 je(assembler, greater)
 

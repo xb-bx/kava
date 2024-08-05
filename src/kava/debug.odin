@@ -29,6 +29,7 @@ print_locals :: proc "c" (class: cstring, method: cstring, descriptor: cstring, 
         return (transmute(^uintptr)(rbp - offset))^
     }
     print_local_info :: proc(arg: ^kavavm.Class, value: uintptr) {
+        value := value
         if arg.name == "java/lang/String" {
             if value == 0 {
                 fmt.printf("String (null)\n")
@@ -36,8 +37,12 @@ print_locals :: proc "c" (class: cstring, method: cstring, descriptor: cstring, 
                 str := javaString_to_string(transmute(^ObjectHeader)value) 
                 fmt.printf("String \"%s\"\n", str)
             }
+        } else if  arg.name == "float" {
+            fmt.printf("%s %f\n", arg.name, (transmute(^f32)&value)^)
+        } else if  arg.name == "double" {
+            fmt.printf("%s %f\n", arg.name, (transmute(^f64)&value)^)
         } else {
-            fmt.printf("%s %p\n", arg.name, value)
+            fmt.printf("%s %x\n", arg.name, value)
         }
     }
     clas := vm.classes[class]

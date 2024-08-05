@@ -27,6 +27,12 @@ class KavaLocals(gdb.Command):
         clas = clas.replace('.', '/')
         descriptor = descriptor.replace('.', '/')
         meth = class_and_function[point + 1:]
+        if meth == "_init_":
+            meth = "<init>"
+        elif meth == "_clinit_":
+            meth = "<clinit>"
+
+
         print(clas, meth, descriptor)
 
         

@@ -1449,6 +1449,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
+            case .d2l:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if t != vm.classes["double"] {
+                    return verification_error("Invalid bytecode. Expected double value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["long"])
             case .i2s:
                 t := stack_pop_class(stack)
                 if t == nil {
@@ -1503,6 +1512,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["float"])
+            case .l2f:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if t != vm.classes["long"] {
+                    return verification_error("Invalid bytecode. Expected long value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["float"])
             case .f2i:
                 t := stack_pop_class(stack)
                 if t == nil {
@@ -1513,6 +1531,16 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected float value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
+            case .f2d:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if t != vm.classes["float"] {
+
+                    return verification_error("Invalid bytecode. Expected float value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["double"])
             case .fsub, .fadd, .fmul, .fdiv:
                 if stack.count < 2 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)

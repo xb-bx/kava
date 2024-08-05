@@ -33,7 +33,7 @@ JRE=bin/jre
 define DEPENDABLE_VAR
 $1: phony
 	@# 4 dollar-signs in a row to attract money 
-	@if [ -f $1 ]; then VALUE=`cat $1`; else VALUE=""; fi; \
+	@if [ -f $1 ]; then VALUE=`cat $1`; else touch $1; VALUE=""; fi; \
 	if [[ "$$$$VALUE" != '$($1)' ]]; then \
 		echo -n '$($1)' > $1; \
 	fi
@@ -126,3 +126,6 @@ run-helloworld: $(KAVA) testclasses/helloworld/HelloWorld.class
 run-helloworld-java: $(KAVA) testclasses/helloworld/HelloWorld.class
 	java -cp testclasses/helloworld HelloWorld
 
+.PHONY: run-tictactoe
+run-tictactoe: $(KAVA) testclasses/tictactoe/Main.class
+	./$(KAVA) -cp testclasses tictactoe/Main
