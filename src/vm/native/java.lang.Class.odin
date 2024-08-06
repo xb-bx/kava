@@ -75,7 +75,7 @@ Class_newInstance :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     class := vm.classes[javaString_to_string(get_object_field_ref(this, "name")^)]
     initializer := find_method(class, "<clinit>", "()V")
     if initializer != nil {
-        jit_ensure_clinit_called_body(vm, class, initializer)
+        jit_ensure_clinit_called_body(vm, initializer)
     }
     newobj: ^ObjectHeader = nil
     gc_alloc_object(vm, class, &newobj)

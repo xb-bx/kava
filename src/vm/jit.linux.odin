@@ -225,17 +225,49 @@ free_executable :: proc(ptr: [^]u8, size: uint) {
 
 jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {
     using x86asm
+    call_clinit_and_patch_back :: proc "c" (vm: ^VM, init: ^Method, start: uintptr, len: uintptr) {
+        jit_ensure_clinit_called_body(vm, init)
+        /// jmp to (start + len)
+        ptr := transmute([^]u8)(start)
+        ptr[0] = 0xeb
+        ptr[1] = u8(len - 2) 
+        
+
+
+        //0x0000000000841f0f
+        //ptr := transmute([^]u32)(start)
+        //for i in 0..<(len/4) {
+            //ptr[i] = 0xc01f0f48 // nop rax
+        //}
+        //rest := (len % 4)
+        //restptr := transmute([^]u8)(start + len - rest - 0)
+        //for i in 0..<(rest) {
+            //restptr[i] = 0x90
+        //}
+    }
     this_class := ctx.method.parent 
     if is_subtype_of(this_class, class) {
         return
     }
     initializer := find_method(class, "<clinit>", "()V")
     if initializer != nil {
-    
-        mov(assembler, parameter_registers[0], transmute(int)vm)
-        mov(assembler, parameter_registers[1], transmute(int)class)
-        mov(assembler, parameter_registers[2], transmute(int)initializer)
-        mov(assembler, rax, transmute(int)jit_ensure_clinit_called_body)
-        call(assembler, rax)
+        when ENABLE_PATCHES {
+            start_index := len(assembler.bytes)
+            lea_rax_rip := [?]u8 { 0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00 }
+            append(&assembler.bytes, ..lea_rax_rip[:])
+            subsx(assembler, rax, i32(len(lea_rax_rip)))
+            mov(assembler, parameter_registers[0], transmute(int)vm)
+            mov(assembler, parameter_registers[1], transmute(int)initializer)
+            mov(assembler, parameter_registers[2], rax)
+            len := len(assembler.bytes) - start_index + 10 + 10 + 2
+            mov(assembler, parameter_registers[3], len) 
+            mov(assembler, rax, transmute(int)call_clinit_and_patch_back)
+            call(assembler, rax)
+        } else {
+            mov(assembler, parameter_registers[0], transmute(int)vm)
+            mov(assembler, parameter_registers[1], transmute(int)initializer)
+            mov(assembler, rax, transmute(int)jit_ensure_clinit_called_body)
+            call(assembler, rax)
+        }
     }
 }

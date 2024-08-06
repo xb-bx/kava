@@ -13,7 +13,8 @@ ODIN_FLAGS ?=\
 		   -o:none \
 		   -debug \
 		   -thread-count:$(shell nproc) \
-		   -use-separate-modules
+		   -use-separate-modules \
+		   -error-pos-style:unix
 GDB=/opt/gdb11/bin/gdb
 ifeq ($(OS), Windows_NT)
 	KAVA=bin/kava.exe

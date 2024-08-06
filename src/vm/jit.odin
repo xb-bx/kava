@@ -16,6 +16,7 @@ ENABLE_GDB_DEBUGGING :: #config(ENABLE_GDB_DEBUGGING, true)
 BREAKPOINT_METHOD_NAME :: #config(BREAKPOINT_METHOD_NAME, "")
 BREAKPOINT_CLASS_NAME :: #config(BREAKPOINT_CLASS_NAME, "")
 BREAKPOINT_METHOD_DESCRIPTOR :: #config(BREAKPOINT_METHOD_DESCRIPTOR, "")
+ENABLE_PATCHES :: #config(ENABLE_PATCHES, false)
 
 JittingContext :: struct {
     vm: ^VM,
@@ -464,46 +465,61 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                     case IntegerInfo:
                         mov(assembler, rax, transmute(int)cast(i64)const.(classparser.IntegerInfo).value)  
                     case StringInfo:
-                        jit_load_string_const :: proc "c" (class: ^Class, const: u16) -> ^ObjectHeader {
-                            using classparser
-                            context = vm.ctx
-                            str := resolve_utf8(class.class_file, const).(string)
-                            strobj :^ObjectHeader= nil
-                            gc_alloc_string(vm, str, &strobj)
-                            class.strings[const] = strobj
-                            return strobj
-                        }
-                        patch :: proc "c" (start: uintptr, len: int, str_index: u16, class: ^Class) -> ^ObjectHeader {
-                            obj := jit_load_string_const(class, str_index)
-                            bytes := transmute([^]u8)start 
-                            bytes[0] = 0x48; bytes[1] = 0xb8; // mov rax, ...
-                            (transmute(^^ObjectHeader)&bytes[2])^ = obj
-                            i := 10
-                            for i < len {
-                                bytes[i] = 0x90 // nop
-                                i+=1
+                        when ENABLE_PATCHES {
+                            jit_load_string_const :: proc "c" (class: ^Class, const: u16) -> ^ObjectHeader {
+                                using classparser
+                                context = vm.ctx
+                                str := resolve_utf8(class.class_file, const).(string)
+                                strobj :^ObjectHeader= nil
+                                gc_alloc_string(vm, str, &strobj)
+                                class.strings[const] = strobj
+                                return strobj
                             }
-                            return obj
-                            
-                        }
-                        // alloc new string and then patch code to be:
-                        // mov rax, <new_string_addr>
-                        // nop
-                        // ..
-                        // nop
-                        start_index := len(assembler.bytes)
-                        lea_rax_rip := [?]u8 { 0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00 }
-                        str_index := const.(classparser.StringInfo).string_index
-                        append(&assembler.bytes, ..lea_rax_rip[:])
-                        subsx(assembler, rax, i32(len(lea_rax_rip)))
-                        mov(assembler, reg_args[0], rax)
-                        mov(assembler, cast(Reg32)reg_args[2], cast(i32)str_index)
-                        mov(assembler, reg_args[3], transmute(int)method.parent)
-                        mov(assembler, rax, transmute(int)patch)
-                        end_index := len(assembler.bytes) + 2 + 6 // "call rax" is 2 bytes long & "mov R32, len" is 6 bytes long
-                        mov(assembler, cast(Reg32)reg_args[1], cast(i32)(end_index - start_index)) 
-                        call(assembler, rax)
+                            patch :: proc "c" (start: uintptr, len: int, str_index: u16, class: ^Class) -> ^ObjectHeader {
+                                obj := jit_load_string_const(class, str_index)
+                                bytes := transmute([^]u8)start 
+                                bytes[0] = 0x48; bytes[1] = 0xb8; // mov rax, ...
+                                (transmute(^^ObjectHeader)&bytes[2])^ = obj
+                                i := 10
+                                for i < len {
+                                    bytes[i] = 0x90 // nop
+                                    i+=1
+                                }
+                                return obj
+                                
+                            }
+                            // alloc new string and then patch code to be:
+                            // mov rax, <new_string_addr>
+                            // nop
+                            // ..
+                            // nop
+                            start_index := len(assembler.bytes)
+                            lea_rax_rip := [?]u8 { 0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00 }
+                            str_index := const.(classparser.StringInfo).string_index
+                            append(&assembler.bytes, ..lea_rax_rip[:])
+                            subsx(assembler, rax, i32(len(lea_rax_rip)))
+                            mov(assembler, reg_args[0], rax)
+                            mov(assembler, cast(Reg32)reg_args[2], cast(i32)str_index)
+                            mov(assembler, reg_args[3], transmute(int)method.parent)
+                            mov(assembler, rax, transmute(int)patch)
+                            end_index := len(assembler.bytes) + 2 + 6 // "call rax" is 2 bytes long & "mov R32, len" is 6 bytes long
+                            mov(assembler, cast(Reg32)reg_args[1], cast(i32)(end_index - start_index)) 
+                            call(assembler, rax)
 
+                        }
+                        else {
+                            str_index := const.(classparser.StringInfo).string_index
+                            if str_index in method.parent.strings {
+                                mov(assembler, rax, transmute(int)method.parent.strings[str_index])
+                            } else {
+                                str := resolve_utf8(method.parent.class_file, str_index).(string)
+                                strobj :^ObjectHeader= nil
+                                gc_alloc_string(vm, str, &strobj)
+                                strobj = intern(&vm.internTable, strobj)
+                                mov(assembler, rax, transmute(int)strobj)
+                                method.parent.strings[str_index] = strobj
+                            }
+                        }
 
                     case ClassInfo:
                         class := load_class(vm, method.parent.class_file.constant_pool[const.(classparser.ClassInfo).name_index - 1].(classparser.UTF8Info).str).value.(^Class)
@@ -1088,10 +1104,11 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                     inc_m32(assembler, at(rbp, locals[ops.op1]))
                 }
                 else {
-                    mov(assembler, rax, at(rbp, locals[ops.op1]))
+                    addsx(assembler, at(rbp, locals[ops.op1]), imm)
+                    //mov(assembler, rax, at(rbp, locals[ops.op1]))
 
-                    addsx(assembler, rax, imm)
-                    mov(assembler, at(rbp, locals[ops.op1]), rax)
+                    //addsx(assembler, rax, imm)
+                    //mov(assembler, at(rbp, locals[ops.op1]), rax)
                 }
             case .anewarray:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
@@ -1591,19 +1608,11 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
 }
 stacktrace := make([dynamic]^StackEntry)
 stack_trace_push :: proc(stack_entry: ^StackEntry) {
-     //for i in 0..<len(stacktrace) {
-         //fmt.print(' ')
-     //}
-     //fmt.println("entered", stack_entry.method.name, stack_entry.method.descriptor, stack_entry.method.parent.name)
     append(&stacktrace, stack_entry)
 }
 stack_trace_pop :: proc "c" (vm: ^VM) -> ^StackEntry {
     context = vm.ctx
     res := stacktrace[len(stacktrace) - 1] 
-     //for i in 0..<len(stacktrace)-1 {
-         //fmt.print(' ')
-     //}
-     //fmt.println("left   ", res.method.name, res.method.parent.name)
     ordered_remove(&stacktrace, len(stacktrace) - 1) 
     return res
 }
@@ -1623,12 +1632,13 @@ StackEntry :: struct {
     size: int,
 }
 
-jit_ensure_clinit_called_body :: proc "c" (vm: ^VM, class: ^Class, initializer: ^Method) {
+jit_ensure_clinit_called_body :: proc "c" (vm: ^VM, initializer: ^Method) {
     context = vm.ctx
+    class := initializer.parent
     if class.super_class != nil && !class.super_class.class_initializer_called {
         parent_initializer := find_method(class.super_class, "<clinit>", "()V")
         if parent_initializer != nil {
-            jit_ensure_clinit_called_body(vm, class.super_class, parent_initializer)
+            jit_ensure_clinit_called_body(vm, parent_initializer)
         }
     }
     if !class.class_initializer_called {

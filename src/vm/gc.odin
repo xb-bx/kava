@@ -78,10 +78,8 @@ gc_init :: proc(using gc: ^GC) {
     gc_new_chunk(gc)
 }
 gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
-    ctx := context
     data, err := mem.alloc(size, GC_ALLIGNMENT)
     if err != .None {
-        fmt.println(ctx.allocator, err, size)
         panic("Failed to allocate memory")
     }    
     fmt.println("new chunk", size)
@@ -265,7 +263,7 @@ gc_collect :: proc (gc: ^GC) {
     collection_depth -= 1
     time.stopwatch_stop(&stopwatch)
     dur := time.duration_milliseconds(time.stopwatch_duration(stopwatch))
-    fmt.println("GC took", dur, "ms")
+    //fmt.println("GC took", dur, "ms")
 }
 align_size :: proc (size: $T, alignment := GC_ALLIGNMENT) -> T {
     return size % T(alignment) == 0 ? size : size + T(alignment) - size % T(alignment)

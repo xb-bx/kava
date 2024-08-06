@@ -18,7 +18,7 @@ arraycopy :: proc "c" (src: ^kava.ArrayHeader, src_pos: i32, dest: ^kava.ArrayHe
     if src == nil || dest == nil {
         kava.throw_NullPointerException(vm)
     }
-    if src.obj.class != dest.obj.class {
+    if src.obj.class != dest.obj.class && !is_subtype_of(src.obj.class, dest.obj.class) {
         kava.throw_NullPointerException(vm)
     }
     if src.obj.class.underlaying.class_type == ClassType.Primitive {
@@ -151,6 +151,17 @@ when ODIN_OS == .Linux {
         fileOutputStream_init(out_file_stream, outfld^)
         
         printStream_init(out_printStream_ref^, out_file_stream)
+
+
+        err_printStream_ref := transmute(^^ObjectHeader)&find_field(system, "err").static_data
+        gc_alloc_object(vm, printStream, err_printStream_ref)
+
+        err_file_stream: ^ObjectHeader = nil
+        gc_alloc_object(vm, fileOutputStream, &err_file_stream)
+        fileOutputStream_init(err_file_stream, errfld^)
+        
+        printStream_init(err_printStream_ref^, err_file_stream)
+
 
         fileInputStream := load_class(vm, "java/io/FileInputStream").value.(^Class)
         fileInputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileInputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
