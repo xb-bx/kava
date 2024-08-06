@@ -14,6 +14,7 @@ ODIN_FLAGS ?=\
 		   -debug \
 		   -thread-count:$(shell nproc) \
 		   -use-separate-modules
+GDB=/opt/gdb11/bin/gdb
 ifeq ($(OS), Windows_NT)
 	KAVA=bin/kava.exe
 	CLASSPARSER=bin/classparser.exe
@@ -122,6 +123,8 @@ testclasses/helloworld/HelloWorld.class: testclasses/helloworld/HelloWorld.java
 .PHONY: run-helloworld
 run-helloworld: $(KAVA) testclasses/helloworld/HelloWorld.class
 	./$(KAVA) -cp testclasses/helloworld HelloWorld
+debug-helloworld: $(KAVA) testclasses/helloworld/HelloWorld.class 
+	$(GDB) --args ./$(KAVA) -cp testclasses/helloworld HelloWorld
 .PHONY: run-helloworld-java
 run-helloworld-java: $(KAVA) testclasses/helloworld/HelloWorld.class
 	java -cp testclasses/helloworld HelloWorld

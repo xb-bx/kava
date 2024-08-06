@@ -415,7 +415,7 @@ is_subtype_of :: proc(subtype: ^Class, parent: ^Class) -> bool {
         class := subtype
         for class != nil {
             for interface in class.interfaces {
-                if interface == parent {
+                if interface == parent || is_subtype_of(interface, parent) {
                     return true
                 }
             }
@@ -590,9 +590,10 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 locals[index] = t
             case .fload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if index >= len(locals) || locals[index].name != "float" {
+                if index >= len(locals) || (locals[index] != nil && locals[index].name != "float") {
                     return verification_error("Invalid bytecode. Expected float local variable", this_method, instr)
                 }
+                if locals[index] == nil do locals[index] = vm.classes["float"]
                 stack_push(stack, locals[index])
             case .dstore:
                 t := stack_pop_class(stack)
@@ -603,9 +604,10 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 locals[index] = t
             case .dload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                if index >= len(locals) || locals[index].name != "double" {
+                if index >= len(locals) || (locals[index] != nil && locals[index].name != "double") {
                     return verification_error("Invalid bytecode. Expected integer local variable", this_method, instr)
                 }
+                if locals[index] == nil do locals[index] = vm.classes["double"]
                 stack_push(stack, locals[index])
             case .lstore:
                 t := stack_pop_class(stack)
@@ -640,6 +642,8 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
             case .lload:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 if index >= len(locals) || locals[index] != nil && locals[index] != vm.classes["long"] {
+                    fmt.println(locals[index])
+                    if true do panic("")
                     return verification_error("Invalid bytecode. Expected long local variable", this_method, instr)
                 }
                 stack_push(stack, vm.classes["long"])
@@ -663,7 +667,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     }
                     if block.stack_at_start == nil {
                         block.stack_at_start = new_clone(copy_stack(stack^))
-                        block.locals = slice.clone(locals)
+                        block.locals = make([]^Class, len(locals))
                         res := calculate_stack(vm, block, cblocks, this_method)
                         if res != nil {
                             return res
@@ -679,7 +683,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if default_block.stack_at_start == nil {
                     default_block.stack_at_start = new_clone(copy_stack(stack^))
-                    default_block.locals = slice.clone(locals)
+                    default_block.locals = make([]^Class, len(locals))
                     
                     res := calculate_stack(vm, default_block, cblocks, this_method)
                     if res != nil {
@@ -704,7 +708,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     }
                     if block.stack_at_start == nil {
                         block.stack_at_start = new_clone(copy_stack(stack^))
-                        block.locals = slice.clone(locals)
+                        block.locals = make([]^Class, len(locals))
                         res := calculate_stack(vm, block, cblocks, this_method)
                         if res != nil {
                             return res
@@ -720,7 +724,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if default_block.stack_at_start == nil {
                     default_block.stack_at_start = new_clone(copy_stack(stack^))
-                    default_block.locals = slice.clone(locals)
+                    default_block.locals = make([]^Class, len(locals))
                     
                     res := calculate_stack(vm, default_block, cblocks, this_method)
                     if res != nil {
@@ -889,6 +893,38 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     fmt.println(value.is_null, value.class.name, array.is_null, array.class.name, array.class.underlaying.name)
                     return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
                 }
+            case .fastore:
+                if stack.count < 3 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value := stack_pop_class(stack)
+                index := stack_pop_class(stack)
+                array := stack_pop(stack)
+                if value != vm.classes["float"] {
+                    return verification_error("Invalid bytecode. value must be float", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
+                }
+                if !is_stacktype_array_of(array, value) {
+                    return verification_error("Invalid bytecode. Expected array of chars", this_method, instr)
+                }
+            case .dastore:
+                if stack.count < 3 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value := stack_pop_class(stack)
+                index := stack_pop_class(stack)
+                array := stack_pop(stack)
+                if value != vm.classes["double"] {
+                    return verification_error("Invalid bytecode. value must be double", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
+                }
+                if !is_stacktype_array_of(array, value) {
+                    return verification_error("Invalid bytecode. Expected array of chars", this_method, instr)
+                }
             case ._return:
                 if this_method.ret_type != vm.classes["void"] {
                     return verification_error("Invalid bytecode. Cannot return void from method", this_method, instr)
@@ -939,6 +975,8 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
                 if ret_type.class != this_method.ret_type && !is_stacktype_subtype_of(ret_type, this_method.ret_type)  {
+                    fmt.println(ret_type.class.name)
+                    if true do panic("")
                     return verification_error("Invalid bytecode. Wrong return type", this_method, instr)
                 }
                 canEscape = false
@@ -1050,7 +1088,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                         fmt.println(typ.class.name, arg.name)
                         return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
-                    if typ.class.name == "double" || typ.class.name == "long" {
+                    if !typ.is_null && (typ.class.name == "double" || typ.class.name == "long") {
                         argi += 1
                     }
                     argi += 1
@@ -1127,7 +1165,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     if typ.class != arg && !is_stacktype_subtype_of(typ, arg) && !(type_is_integer(typ.class) && type_is_integer(arg)) {
                         return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
-                    if typ.class.name == "double" || typ.class.name == "long" {
+                    if !typ.is_null && (typ.class.name == "double" || typ.class.name == "long") {
                         argi += 1
                     }
                     argi += 1
@@ -1175,7 +1213,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    next_block.locals = slice.clone(locals) 
+                    next_block.locals = make([]^Class, len(locals))
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
@@ -1199,7 +1237,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    next_block.locals = slice.clone(locals) 
+                    next_block.locals = make([]^Class, len(locals)) 
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
@@ -1282,6 +1320,22 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     stack_push(stack, t2.class, t2.is_null)
                     stack_push(stack, t1.class, t1.is_null)
                 }
+            case .daload:
+                index := stack_pop_class(stack)
+                if index == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Expected integer on stack", this_method, instr)
+                }
+                arr := stack_pop(stack)
+                if arr == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !is_stacktype_array_of(arr, vm.classes["double"]) {
+                    return verification_error("Invalid bytecode. Expected array of doubles", this_method, instr)
+                }
+                stack_push(stack, arr.is_null ? nil : arr.class.underlaying, arr.is_null)
             case .aaload:
                 index := stack_pop_class(stack)
                 if index == nil {
@@ -1363,7 +1417,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    next_block.locals = slice.clone(locals) 
+                    next_block.locals = make([]^Class, len(locals)) 
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
@@ -1383,13 +1437,16 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    next_block.locals = slice.clone(locals) 
+                    next_block.locals = make([]^Class, len(locals)) 
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
                     }
                 }
                 else if !stack_eq(next_block.stack_at_start, stack) || !locals_equal(locals, next_block.locals)  {
+                    
+                    fmt.println(cb.start)
+                    if true do panic("")
                     return verification_error("Invalid bytecode. Inconsistent stack", this_method, instr)
                 }
             case .goto, .goto_w:
@@ -1399,7 +1456,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 if next_block.stack_at_start == nil {
                     next_block.stack_at_start = new_clone(copy_stack(stack^))
-                    next_block.locals = slice.clone(locals) 
+                    next_block.locals = make([]^Class, len(locals))
                     res := calculate_stack(vm, next_block, cblocks, this_method)
                     if res != nil {
                         return res
@@ -1528,6 +1585,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected integer value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["float"])
+            case .l2d:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if t != vm.classes["long"] {
+                    return verification_error("Invalid bytecode. Expected long value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["double"])
             case .l2f:
                 t := stack_pop_class(stack)
                 if t == nil {
@@ -1567,6 +1633,16 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected float value", this_method, instr)
                 }
                 stack_push(stack, value1)
+            case .dcmpg, .dcmpl:
+                if stack.count < 2 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value2 := stack_pop_class(stack)
+                value1 := stack_pop_class(stack)
+                if value2 != vm.classes["double"] || value1 != vm.classes["double"] {
+                    return verification_error("Invalid bytecode. Expected double value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["int"])
             case .fcmpg, .fcmpl:
                 if stack.count < 2 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
@@ -1596,6 +1672,25 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected long value", this_method, instr)
                 }
                 stack_push(stack, value1)
+            case .fneg:
+                if stack.count < 1 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value1 := stack_pop_class(stack)
+                if value1.name != "float" {
+                    return verification_error("Invalid bytecode. Expected float value", this_method, instr)
+
+                }
+                stack_push(stack, value1)
+            case .dneg:
+                if stack.count < 1 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value1 := stack_pop_class(stack)
+                if value1.name != "double" {
+                    return verification_error("Invalid bytecode. Expected double value", this_method, instr)
+                }
+                stack_push(stack, value1)
             case .ineg:
                 if stack.count < 1 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
@@ -1606,7 +1701,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 }
                 stack_push(stack, value1)
                 
-            case .lshl, .lshr:
+            case .lshl, .lshr, .lushr:
                 if stack.count < 2 {
                     return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
                 }
@@ -1671,7 +1766,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
         next := find_codeblock_by_start(cblocks, cb.end) 
         if next.stack_at_start == nil {
             next.stack_at_start = new_clone(copy_stack(stack^))
-            next.locals = slice.clone(locals) 
+            next.locals = make([]^Class, len(locals)) 
             return calculate_stack(vm, next, cblocks, this_method)
         }
         else if !stack_eq(next.stack_at_start, stack) || !locals_equal(locals, next.locals)  {

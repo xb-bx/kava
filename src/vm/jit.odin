@@ -662,6 +662,23 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 sar_cl(assembler, eax)
                 mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), eax) 
                 stack_count += 1
+            case .lshr:
+                stack_count -= 2
+                mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                and(assembler, ecx, 0b11111)
+                sar_cl(assembler, eax)
+                mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax) 
+                stack_count += 1
+            case .lushr:
+                stack_count -= 2
+                mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
+                mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
+                and(assembler, ecx, 0b11111)
+                shr_cl(assembler, eax)
+                mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax) 
+                stack_count += 1
+
             case .ishl:
                 stack_count -= 2
                 mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
@@ -735,11 +752,18 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 idiv(assembler, r10)
                 stack_count += 1
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+
+            case .dneg:
+                sign_mask := uint(0x8000000000000000)
+                mov(assembler, rax, transmute(int)sign_mask)
+                xor(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+            case .fneg:
+                sign_mask := u32(0x80000000)
+                xor(assembler, at(rbp, stack_base - 8 * stack_count), transmute(i32)sign_mask)
             case .ineg:
                 neg_m32(assembler, at(rbp, stack_base - 8 * stack_count))
             case .lneg:
                 neg_m64(assembler, at(rbp, stack_base - 8 * stack_count))
-            
             case .putstatic:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 fldclass: ^Class = nil
@@ -814,9 +838,9 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 1
                 cmp(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), i32(0))
                 jge(assembler, labels[start])
-            case .aastore:
+            case .aastore, .dastore:
                 jit_array_store(ctx, instruction, 8)
-            case .aaload:
+            case .aaload, .daload:
                 jit_array_load(ctx, instruction, 8)
             case .caload, .saload:
                 jit_array_load(ctx, instruction, 2)
@@ -828,7 +852,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_array_store(ctx, instruction, 1)
             case .iaload:
                 jit_array_load(ctx, instruction, 4)
-            case .iastore:
+            case .iastore, .fastore:
                 jit_array_store(ctx, instruction, 4)
 
             case .d2i:
@@ -837,6 +861,9 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .d2l:
                 cvttsd2si(assembler, rax, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
+            case .l2d:
+                cvtsi2sd_mem64(assembler, xmm0, at(rbp, stack_base - 8 * stack_count))
+                movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
             case .l2f:
                 cvtsi2ss_mem64(assembler, xmm0, at(rbp, stack_base - 8 * stack_count))
                 movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
@@ -913,6 +940,76 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 addsd(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
                 stack_count += 1
                 movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+            case .dcmpl:
+                stack_count -= 2
+                greater := create_label(assembler)
+                less := create_label(assembler)
+                equals := create_label(assembler)
+                endofblock := create_label(assembler)
+                movsd(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
+                movsd(assembler, xmm1, at(rbp, stack_base - 8 * (stack_count + 2)))
+                movsd(assembler, xmm2, xmm0)
+                movsd(assembler, xmm3, xmm0)
+                
+                // NaN check
+                cmpordsd(assembler, xmm2, xmm1)
+                cvttss2si(assembler, eax, xmm2)
+                cmp(assembler, eax, 0)
+                je(assembler, less)
+
+                cmpnlesd(assembler, xmm3, xmm1)
+                cvttss2si(assembler, eax, xmm3)
+                cmp(assembler, eax, 0)
+                jne(assembler, greater)
+                cmpltsd(assembler, xmm0, xmm1)
+                cvttss2si(assembler, eax, xmm0)
+                cmp(assembler, eax, 0)
+                je(assembler, equals)
+                set_label(assembler, less)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), -1)
+                jmp(assembler, endofblock)
+                set_label(assembler, greater)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 1)
+                jmp(assembler, endofblock)
+                set_label(assembler, equals)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 0)
+                set_label(assembler, endofblock)
+                stack_count += 1
+            case .dcmpg:
+                stack_count -= 2
+                greater := create_label(assembler)
+                less := create_label(assembler)
+                equals := create_label(assembler)
+                endofblock := create_label(assembler)
+                movsd(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
+                movsd(assembler, xmm1, at(rbp, stack_base - 8 * (stack_count + 2)))
+                movsd(assembler, xmm2, xmm0)
+                movsd(assembler, xmm3, xmm0)
+                
+                // NaN check
+                cmpordsd(assembler, xmm2, xmm1)
+                cvttss2si(assembler, eax, xmm2)
+                cmp(assembler, eax, 0)
+                je(assembler, greater)
+
+                cmpnlesd(assembler, xmm3, xmm1)
+                cvttss2si(assembler, eax, xmm3)
+                cmp(assembler, eax, 0)
+                jne(assembler, greater)
+                cmpltsd(assembler, xmm0, xmm1)
+                cvttss2si(assembler, eax, xmm0)
+                cmp(assembler, eax, 0)
+                je(assembler, equals)
+                set_label(assembler, less)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), -1)
+                jmp(assembler, endofblock)
+                set_label(assembler, greater)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 1)
+                jmp(assembler, endofblock)
+                set_label(assembler, equals)
+                movsx(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), 0)
+                set_label(assembler, endofblock)
+                stack_count += 1
             case .fcmpl:
                 stack_count -= 2
                 greater := create_label(assembler)

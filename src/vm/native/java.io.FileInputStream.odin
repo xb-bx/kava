@@ -24,7 +24,7 @@ FileInputStream_readBytes :: proc "c" (this: ^kava.ObjectHeader, bytes: ^kava.Ar
     data := array_to_slice(u8, bytes)[off:off+len]
     read, err := os.read(handle, data)
     assert(err == os.ERROR_NONE)
-    return i32(read)
+    return read == 0 ? -1 : i32(read)
 }
 /// available0 ()I 
 FileInputStream_available0 :: proc "c" (this: ^kava.ObjectHeader) -> i32 {

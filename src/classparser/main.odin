@@ -1116,7 +1116,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                         index = cast(int)bytes[i + 1]
                         count = cast(int)transmute(i8)bytes[i + 2]
                     }
-                    append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = two_op(index, count)})
+                    append(&instructions, SimpleInstruction { offset = i - (next_is_wide ? 1 : 0), opcode = opcode, operand = two_op(index, count)})
                     i += size
                 }
                 else {
@@ -1135,7 +1135,7 @@ parse_bytecode :: proc(class: ^ClassFile, bytes: []u8) -> shared.Result([]Instru
                     else {
                         index = cast(int)bytes[i + 1]
                     }
-                    append(&instructions, SimpleInstruction { offset = i, opcode = opcode, operand = single_op(index)})
+                    append(&instructions, SimpleInstruction { offset = i - (next_is_wide ? 1 : 0), opcode = opcode, operand = single_op(index)})
                     i += size
                 }
                 next_is_wide = false
