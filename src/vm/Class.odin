@@ -39,6 +39,8 @@ Method :: struct {
     jitted_body: [^]u8,
     exception_table: []ExceptionInfo,
     stack_base: i32,
+    times_called: int,
+    empty_init: bool,
 }
 Class :: struct {
     name: string,

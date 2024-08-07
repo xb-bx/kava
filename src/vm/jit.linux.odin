@@ -72,6 +72,11 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
     using x86asm
     virtual := virtual_call && !hasFlag(target.access_flags, classparser.MethodAccessFlags.Final) && (get_instr_opcode(instruction) == classparser.Opcode.invokevirtual || get_instr_opcode(instruction) == classparser.Opcode.invokeinterface) 
     args := count_args(target)
+    if !virtual && target.empty_init {
+        stack_count -= args
+        stack_count -= 1
+        return
+    }
     regular, fp := split_args_into_regular_and_fp(target.args)
     defer delete(regular)
     defer delete(fp)
@@ -246,7 +251,7 @@ jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {
         //}
     }
     this_class := ctx.method.parent 
-    if is_subtype_of(this_class, class) {
+    if class.class_initializer_called || is_subtype_of(this_class, class) {
         return
     }
     initializer := find_method(class, "<clinit>", "()V")

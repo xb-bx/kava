@@ -520,12 +520,44 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Abstract) && method.jitted_body == nil {
                     prepare_lazy_bootstrap(vm, &method)
                 }
+                if method.name == "<init>" && method.descriptor == "()V" {
+                    check_if_empty_init(&method) 
+                }
             }
             gc_add_field_roots(vm.gc, class)
             return Ok(string, class) 
         }
     }
     return Err(^Class, fmt.aprintf("Could not find class %s", class_name))
+}
+check_if_empty_init :: proc(method: ^Method) {
+    if method.parent.name == "java/lang/Object" {
+        method.empty_init = true
+        return
+    }
+    code := method.code.(classparser.CodeAttribute)
+    if len(code.code) != 3 do return
+    if s, ok := code.code[0].(classparser.SimpleInstruction); ok {
+        if s.opcode != .aload || s.operand.(classparser.OneOperand).op != 0 do return
+        if s1, ok := code.code[1].(classparser.SimpleInstruction); ok {
+            if s1.opcode != .invokespecial do return 
+            base := s1.operand.(classparser.OneOperand).op 
+            basemethod := classparser.resolve_methodref(method.parent.class_file, u16(base)).(classparser.MethodRefInfo)
+            basename := classparser.resolve_class_name(method.parent.class_file, basemethod.class_index).(string)
+            if basename != method.parent.super_class.name do return
+            name_and_type := classparser.resolve_name_and_type(method.parent.class_file, basemethod.name_and_type_index).(classparser.NameAndTypeInfo)
+            name := classparser.resolve_utf8(method.parent.class_file, name_and_type.name_index).(string)
+            descriptor := classparser.resolve_utf8(method.parent.class_file, name_and_type.descriptor_index).(string)
+            if name != "<init>" || descriptor != "()V" do return
+            baseinit := find_method(method.parent.super_class, name, descriptor)
+            if baseinit.empty_init == false do return
+            if s2, ok := code.code[2].(classparser.SimpleInstruction); ok {
+                if s2.opcode != ._return do return 
+                method.empty_init = true
+            } else do return
+        } else do return
+
+    } else do return 
 }
 bootstrap_before_jitted: [^]u8 = nil
 bootstrap_after_jitted: [^]u8 = nil
@@ -755,9 +787,9 @@ print_constant :: proc(classfile: ^classparser.ClassFile, index:int, file: os.Ha
             case UTF8Info:
                 fmt.fprintf(file, "srcfile")
             case FloatInfo:
-                fmt.fprintf(file, "float %d", const.(classparser.FloatInfo).value)
+                fmt.fprintf(file, "float %f", const.(classparser.FloatInfo).value)
             case DoubleInfo:
-                fmt.fprintf(file, "double %d", const.(classparser.DoubleInfo).value)
+                fmt.fprintf(file, "double %f", const.(classparser.DoubleInfo).value)
             case InterfaceMethodRefInfo:
                 mref := const.(InterfaceMethodRefInfo)
                 class_name := resolve_class_name(classfile, mref.class_index)

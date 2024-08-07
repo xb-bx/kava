@@ -27,7 +27,7 @@ exealloc_find_free :: proc(using allocator: ^ExeAllocator, size: int) -> Maybe(F
     for i in 0..<len(free_executable_places) {
         free := &free_executable_places[i]
         if free.size > size {
-            if free.size - size < MINIMAL_FREE_SIZE {
+            if free.size - size > 0 {
                 res := free^
                 remove_range(&free_executable_places, i, i + 1)
                 return res

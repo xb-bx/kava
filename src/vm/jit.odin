@@ -166,7 +166,9 @@ jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
         file, handle := jit_create_bytecode_file_for_method(method)
         jit_context.handle = handle
     }
-    
+    mov(jit_context.assembler, rax, transmute(int)&method.times_called)
+    inc_m64(jit_context.assembler, at(rax))
+
     for &cb in codeblocks {
         jit_compile_cb(&jit_context, &cb)
     }
