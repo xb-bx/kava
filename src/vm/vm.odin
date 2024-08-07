@@ -37,13 +37,21 @@ intern :: proc (internTable: ^InternHashTable, str: ^ObjectHeader) -> ^ObjectHea
     }
     buck := &internTable.buckets[abs(int(String_hashCode(str))) % len(internTable.buckets)]
     res := bucket_add_or_get_string(buck, str)
+    //fmt.printf("interned %s %i %p got %p %p\n", nstr, String_hashCode(str), str, res, buck)
     return res
 }
 bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^ObjectHeader {
     find_str :: proc(list: [dynamic]^ObjectHeader, hash: i32, str: ^ObjectHeader) -> ^ObjectHeader {
+        nstr := javaString_to_string(str)
+        defer delete(nstr)
         for item in list {
             itemHash := (transmute(^i32)(transmute(int)item + hashOffset))^
-            if hash == itemHash do return item
+            if hash == itemHash {
+                itemstr := javaString_to_string(item)
+                defer delete(itemstr)
+                if nstr == itemstr do return item
+
+            }
             else do continue
         }
         return nil
@@ -71,6 +79,7 @@ bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^
         newstr: ^ObjectHeader = nil
         gc_alloc_object(vm, str.class, &newstr)
         String_ctor(newstr, str)
+        String_hashCode(newstr)
         append(&bucket.strings, newstr)
         return newstr
     }
@@ -79,6 +88,7 @@ bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^
         newstr: ^ObjectHeader = nil
         gc_alloc_object(vm, str.class, &newstr)
         String_ctor(newstr, str)
+        String_hashCode(newstr)
         inject_at(&bucket.strings, i, newstr)
         return newstr
     }

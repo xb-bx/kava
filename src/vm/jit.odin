@@ -474,6 +474,8 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                                 str := resolve_utf8(class.class_file, const).(string)
                                 strobj :^ObjectHeader= nil
                                 gc_alloc_string(vm, str, &strobj)
+                                strobj.flags = ObjectHeaderGCFlags.Marked 
+                                strobj = intern(&vm.internTable, strobj)
                                 class.strings[const] = strobj
                                 return strobj
                             }
@@ -517,6 +519,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                                 str := resolve_utf8(method.parent.class_file, str_index).(string)
                                 strobj :^ObjectHeader= nil
                                 gc_alloc_string(vm, str, &strobj)
+                                strobj.flags = ObjectHeaderGCFlags.Marked
                                 strobj = intern(&vm.internTable, strobj)
                                 mov(assembler, rax, transmute(int)strobj)
                                 method.parent.strings[str_index] = strobj
