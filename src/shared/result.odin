@@ -1,6 +1,8 @@
 package shared
 import "core:fmt"
 import "base:runtime"
+import "core:sys/posix"
+import "core:strings"
 Result :: struct($TOk: typeid, $TErr: typeid) {
     value: Maybe(TOk),
     error: Maybe(TErr),
@@ -38,4 +40,10 @@ Symbol :: struct {
 LineMapping :: struct {
     line: i32,
     pc: int,
+}
+file_exists :: proc (filepath: string) -> bool {
+    cpath := strings.clone_to_cstring(filepath)
+    defer delete(cpath)
+    stat: posix.stat_t = {}    
+    return posix.stat(cpath, &stat) == posix.result.OK
 }

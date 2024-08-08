@@ -5,6 +5,7 @@ import "core:unicode/utf16"
 import "core:strings"
 import "core:fmt"
 import "core:os"
+OS_UNIX :: kava.OS_UNIX
 
 /// identityHashCode (Ljava/lang/Object;)I 
 System_identityHashCode :: proc(obj: ^kava.ObjectHeader) -> i32 {
@@ -128,7 +129,7 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     return nil
 //     return nil
 }
-when ODIN_OS == .Linux {
+when OS_UNIX {
     /// registerNatives ()V
     System_registerNatives :: proc "c" () {
         using kava

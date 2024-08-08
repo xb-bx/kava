@@ -11,6 +11,7 @@ import "core:mem/virtual"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
+import "core:sys/posix"
 
 ENABLE_GDB_DEBUGGING :: #config(ENABLE_GDB_DEBUGGING, true)
 BREAKPOINT_METHOD_NAME :: #config(BREAKPOINT_METHOD_NAME, "")
@@ -61,7 +62,7 @@ write_replace_descriptor :: proc(builder: ^strings.Builder, str: string) {
     }
 }
 jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Handle) {
-    if !os.exists("cache") {
+    if !shared.file_exists("cache") {
         err := os.make_directory("cache", 0o777)
         if err != 0 {
             panic("could not create folder")

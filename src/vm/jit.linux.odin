@@ -1,4 +1,4 @@
-//+build linux
+//+build linux,freebsd,openbsd,netbsd
 package vm
 import "x86asm:x86asm"
 import "kava:classparser"
@@ -12,6 +12,7 @@ import "core:mem/virtual"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
+import "core:sys/posix"
 
 parameter_registers := [?]x86asm.Reg64 { x86asm.rdi, x86asm.rsi, x86asm.rdx, x86asm.rcx, x86asm.r8, x86asm.r9 }
 jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) -> int {
@@ -253,7 +254,7 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
 
 
 free_executable :: proc(ptr: [^]u8, size: uint) {
-    assert(unix.sys_munmap(rawptr(ptr), size) == 0)
+    assert(posix.munmap(rawptr(ptr), size) == .OK)
 }
 
 jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {

@@ -13,6 +13,15 @@ import "base:runtime"
 import "core:sys/windows"
 import "x86asm:x86asm"
 import "core:unicode/utf16"
+when   ODIN_OS == .Linux \
+    || ODIN_OS == .FreeBSD \ 
+    || ODIN_OS == .NetBSD \
+    || ODIN_OS == .OpenBSD {
+        OS_UNIX :: true 
+    } else {
+        OS_UNIX :: false
+    }
+
 InternHashTable :: struct {
     buckets: []InternBucket,
 }
@@ -409,7 +418,7 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
 
             }
             else {
-                if os.exists(fullpath) {
+                if file_exists(fullpath) {
                     bytes, _ := os.read_entire_file(fullpath)
                     defer delete(bytes)
                     res := read_class_file(bytes)

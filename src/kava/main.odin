@@ -16,14 +16,16 @@ import "kava:vm/native"
 import "core:sys/unix"
 import "core:unicode/utf16"
 import kavavm "kava:vm"
+import "core:sys/posix"
 
+OS_UNIX :: kavavm.OS_UNIX
 
 error :: proc(str: string, args: ..any) {
     fmt.printf(str, ..args)
     fmt.println()
     os.exit(-1)
 }
-when ODIN_OS == .Linux {
+when OS_UNIX {
     DIR_SEPARATOR :: ":" 
 } else when ODIN_OS == .Windows {
     DIR_SEPARATOR :: ";"
@@ -32,11 +34,16 @@ print_usage :: proc() {
     fmt.println("usage: kava [-options] class [args...]")
 }
 get_executable_path :: proc () -> string {
-    when ODIN_OS == .Linux {
+    when OS_UNIX {
         buf := make([]u8, 512)
         defer delete(buf)
-        buf_raw: rawptr = slice.as_ptr(buf)
-        n := unix.sys_readlink("/proc/self/exe", buf_raw, len(buf)) 
+        buf_raw := slice.as_ptr(buf)
+        when ODIN_OS == .Linux {
+            exepath: cstring = "/proc/self/exe"
+        } else {
+            exepath: cstring = "/proc/curproc/file"
+        }
+        n := posix.readlink(exepath, buf_raw, len(buf)) 
         return strings.clone_from_bytes(buf[:n])
 
     } else when ODIN_OS == .Windows {

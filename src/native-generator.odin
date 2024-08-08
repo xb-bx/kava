@@ -7,7 +7,13 @@ import "core:odin/parser"
 import "core:odin/ast"
 import "core:slice"
 import "core:strings"
-
+import "core:sys/unix"
+import "base:intrinsics"
+SYS_chmod :: 15
+sys_chmod :: proc "contextless" (path: cstring, mode: uint) -> int {
+   i, ok := (intrinsics.syscall_bsd(SYS_chmod, uintptr(rawptr(path)), uintptr(mode))) 
+   return int(i)
+}
 generate_native_methods :: proc(needs_generation: string) {
     pkg, ok := parser.parse_package_from_path("src/vm/native")
     if !ok {
@@ -58,7 +64,12 @@ generate_native_methods :: proc(needs_generation: string) {
             fmt.sbprintln(&builder, "}")
             res := strings.to_string(builder)
             defer delete(res)
-            os.write_entire_file(fmt.aprintf("src/vm/native/%s.generated.odin", classname_dots), slice.bytes_from_ptr(raw_data(res), len(res)))
+            genpath := fmt.aprintf("src/vm/native/%s.generated.odin", classname_dots)
+            genpath_c := strings.clone_to_cstring(genpath)
+            defer delete(genpath)
+            defer delete(genpath_c)
+            os.write_entire_file(genpath, slice.bytes_from_ptr(raw_data(res), len(res)))
+            sys_chmod(genpath_c, 0o640)
         }
     
 
@@ -88,6 +99,7 @@ initializer :: proc() {
     res := strings.to_string(builder)
     defer delete(res)
     os.write_entire_file("src/vm/native/initialize.generated.odin", slice.bytes_from_ptr(raw_data(res), len(res)))
+    sys_chmod("src/vm/native/initialize.generated.odin", 0o640)
 }
 
 main :: proc() {

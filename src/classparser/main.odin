@@ -3,6 +3,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "kava:shared"
+import "core:sys/posix"
 
 
 JAVA_VERSION :: 52 // Java 8
@@ -1785,7 +1786,7 @@ main :: proc() {
         method_descriptor = args[3]
     }
     classfilename := args[1]
-    if !os.exists(classfilename) {
+    if !shared.file_exists(classfilename) {
         error("File %s does not exists", classfilename)
     }
     bytes, ok := os.read_entire_file(classfilename)
