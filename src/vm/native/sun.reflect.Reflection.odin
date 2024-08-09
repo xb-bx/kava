@@ -11,7 +11,7 @@ Reflection_getCallerClass :: proc "c" () -> ^kava.ObjectHeader {
 Reflection_getClassAccessFlags :: proc "c" (class: ^kava.ObjectHeader) -> i32 {
     using kava
     context = vm.ctx
-    class := vm.classes[javaString_to_string(get_object_field_ref(class, "name")^)]
+    class := transmute(^Class)get_object_field(class, "handle")
     return i32(class.access_flags)
 }
 /// filterFields (Ljava/lang/Class;[Ljava/lang/reflect/Field;)[Ljava/lang/reflect/Field; replace

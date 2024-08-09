@@ -5,6 +5,12 @@ import "core:unicode/utf16"
 import "core:strings"
 import "core:fmt"
 import "core:os"
+import "core:time"
+
+/// currentTimeMillis ()J
+System_currentTimeMillis :: proc "c" () -> i64 {
+    return i64(time.now()._nsec / 1000_000)
+}
 
 /// identityHashCode (Ljava/lang/Object;)I 
 System_identityHashCode :: proc(obj: ^kava.ObjectHeader) -> i32 {
@@ -105,6 +111,10 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     } else if prop == "java.home" {
         str: ^kava.ObjectHeader = nil 
         kava.gc_alloc_string(vm, "", &str)
+        return str
+    } else if prop == "java.ext.dirs" {
+        str: ^kava.ObjectHeader = nil 
+        kava.gc_alloc_string(vm, ".", &str)
         return str
     } else if prop == "user.dir" {
         str: ^kava.ObjectHeader = nil 

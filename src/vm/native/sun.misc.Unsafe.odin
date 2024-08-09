@@ -94,13 +94,11 @@ Unsafe_objectFieldOffset :: proc "c" (this: ^kava.ObjectHeader, field: ^kava.Obj
     class_obj := get_object_field_ref(field, "clazz")^
     name_obj  := get_object_field_ref(field, "name")^
 
-    class_name := javaString_to_string(get_object_field_ref(class_obj, "name")^)
-    defer delete(class_name)
 
     field_name := javaString_to_string(name_obj)
     defer delete(field_name)
 
-    class := vm.classes[class_name]
+    class := transmute(^Class)get_object_field(class_obj, "handle")
     fld := kava.find_field(class, field_name)
     
     return i64(fld.offset)

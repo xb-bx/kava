@@ -3,6 +3,7 @@ package native
 import kava "kava:vm"
 import "core:os"
 import "core:fmt"
+import "core:path/filepath"
 
 import "core:io"
 
@@ -14,6 +15,49 @@ BooleanAttributes :: enum i32 {
     Regular = 0x02,
     Directory = 0x04,
     Hidden = 0x08
+}
+/// canonicalize0 (Ljava/lang/String;)Ljava/lang/String;
+UnixFileSystem_canonicalize0 :: proc "c" (this: ^kava.ObjectHeader, path: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+    using kava
+    context = vm.ctx
+    path := javaString_to_string(path)
+    defer delete(path)
+    res := filepath.clean(path)
+    defer delete(res)
+    result: ^kava.ObjectHeader = nil
+    gc_alloc_string(vm, res, &result)
+    return result
+}
+/// list (Ljava/io/File;)[Ljava/lang/String;
+UnixFileSystem_list :: proc "c" (this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> ^kava.ArrayHeader {
+    using kava
+    context = vm.ctx
+    pathobj := kava.get_object_field_ref(file, "path")^
+    path := javaString_to_string(pathobj)
+    defer delete(path)
+    file_info, err := os.stat(path)
+    defer os.file_info_delete(file_info)
+    if err == nil {
+        if !file_info.is_dir do return nil
+        handle, openerr := os.open(path)
+        defer os.close(handle)
+        if openerr != nil do return nil
+        finfos, read_err := os.read_dir(handle, -1)
+        defer os.file_info_slice_delete(finfos)
+        if read_err != nil do return nil
+        result: ^ArrayHeader = nil
+        i := append(&vm.gc.temp_roots, &result.obj)
+
+        gc_alloc_array(vm, vm.classes["java/lang/String"], len(finfos), &result)
+        result_slice := array_to_slice(^ObjectHeader, result)
+        
+        for finfo,i in finfos {
+            gc_alloc_string(vm, finfo.name, &result_slice[i])
+        }
+        ordered_remove(&vm.gc.temp_roots, i)
+        return result
+    }
+    return nil
 }
 /// getBooleanAttributes0 (Ljava/io/File;)I
 UnixFileSystem_getBooleanAttributes0 :: proc "c" (this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> i32 {

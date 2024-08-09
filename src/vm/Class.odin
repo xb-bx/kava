@@ -1,5 +1,6 @@
 package vm
 import "kava:classparser"
+import "core:strings"
 
 PrimitiveType :: enum {
     Int,
@@ -73,7 +74,9 @@ get_class_object :: proc(vm: ^VM, class: ^Class) -> ^ObjectHeader {
     classobj: ^ObjectHeader = nil
     append(&vm.gc.temp_roots, classobj)
     gc_alloc_object(vm, vm.classes["java/lang/Class"], &classobj)
-    gc_alloc_string(vm, class.name, get_object_field_ref(classobj, "name"))
+    java_name, was_alloc := strings.replace_all(class.name, "/", ".")
+    defer if was_alloc do delete(java_name)
+    gc_alloc_string(vm, java_name, get_object_field_ref(classobj, "name"))
     class.class_object = classobj
     (transmute(^^Class)get_object_field_ref(classobj, "handle"))^ = class
     vm.classobj_to_class_map[classobj] = class

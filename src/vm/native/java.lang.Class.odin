@@ -3,6 +3,24 @@ import kava "kava:vm"
 import "core:strings"
 import "core:fmt"
 
+/// getSuperclass ()Ljava/lang/Class; 
+Class_getSuperclass :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+    using kava
+    context = vm.ctx
+    this_class := transmute(^Class)get_object_field(this, "handle")
+    if this_class.super_class == nil do return nil
+    return get_class_object(vm, this_class.super_class)
+}
+/// isAssignableFrom (Ljava/lang/Class;)Z 
+Class_isAssignableFrom :: proc "c" (this: ^kava.ObjectHeader, other: ^kava.ObjectHeader) -> bool {
+    using kava
+    context = vm.ctx
+    this_class := transmute(^Class)get_object_field(this, "handle")
+    other_class := transmute(^Class)get_object_field(other, "handle")
+    return is_subtype_of(other_class, this_class)
+}
+
+
 /// registerNatives ()V
 Class_registerNatives :: proc "c" () {}
 
@@ -10,7 +28,11 @@ Class_registerNatives :: proc "c" () {}
 Class_desiredAssertionStatus0 :: proc "c" () -> i32 {
     return 0
 }
+/// getDeclaringClass0 ()Ljava/lang/Class;
+Class_getDeclaringClass0 :: proc "c" () -> ^kava.ObjectHeader { context = {}; fmt.println("BOOBIES"); return nil }
 
+/// getEnclosingMethod0 ()[Ljava/lang/Object;
+Class_getEnclosingMethod0 :: proc "c" () -> ^kava.ObjectHeader { return nil }
 
 /// getClassLoader0 ()Ljava/lang/ClassLoader;
 Class_getClassLoader0 :: proc "c" () -> ^kava.ObjectHeader { return nil }
@@ -79,7 +101,7 @@ Class_forName :: proc "c" (name: ^kava.ObjectHeader, initialize: bool, loader: ^
 Class_newInstance :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
-    class := vm.classes[javaString_to_string(get_object_field_ref(this, "name")^)]
+    class := transmute(^Class)get_object_field(this, "handle")
     initializer := find_method(class, "<clinit>", "()V")
     if initializer != nil {
         jit_ensure_clinit_called_body(vm, initializer)
@@ -97,7 +119,7 @@ Class_getDeclaredFields0 :: proc "c" (this: ^kava.ObjectHeader, publicOnly: bool
     field_class := vm.classes["java/lang/reflect/Field"]
     field_ctor := kava.find_method(field_class, "<init>", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;IILjava/lang/String;[B)V")
     ctor_proc := transmute(proc "c" (this: ^kava.ObjectHeader, class: ^kava.ObjectHeader, name: ^kava.ObjectHeader, type: ^kava.ObjectHeader, modifiers: i32, slot: i32, signature: ^kava.ObjectHeader, anotations: ^kava.ArrayHeader))(field_ctor.jitted_body)
-    class := vm.classes[javaString_to_string(get_object_field_ref(this, "name")^)]
+    class := transmute(^Class)get_object_field(this, "handle")
     fields := make([dynamic]^kava.ObjectHeader)
     defer delete(fields)
     for &field in class.fields {
