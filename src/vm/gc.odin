@@ -80,9 +80,13 @@ gc_init :: proc(using gc: ^GC) {
 gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
     data, err := mem.alloc(size, GC_ALLIGNMENT)
     if err != .None {
+        fmt.println(err, size)
+        print_stack_trace()
         panic("Failed to allocate memory")
+
     }    
     fmt.println("new chunk", size)
+    
     chunk := new(Chunk)
     chunk.data = data
     chunk.size = size
@@ -268,7 +272,7 @@ gc_collect :: proc (gc: ^GC) {
 align_size :: proc (size: $T, alignment := GC_ALLIGNMENT) -> T {
     return size % T(alignment) == 0 ? size : size + T(alignment) - size % T(alignment)
 }
-gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: i32 = -1) {
+gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: i64 = -1) {
     context = vm.ctx
     objsize := align_size(size <= -1 ? class.size : int(size))
     objplace := gc_find_freeplace(vm.gc, objsize)
@@ -314,11 +318,12 @@ gc_alloc_multiarray ::  proc "c" (vm: ^VM, arrayclass: ^Class, elems: [^]int, ou
 shift_c_array :: proc(array: [^]$T, shift: int) -> [^]T {
     return transmute([^]T)((transmute(int)array) + shift * size_of(T))
 }
+
 gc_alloc_array ::  proc "c" (vm: ^VM, elem_class: ^Class, elems: int, output: ^^ArrayHeader) {
     context = vm.ctx
     array_type := make_array_type(vm, elem_class) 
     array_obj: ^ArrayHeader = nil
-    gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, i32(size_of(ArrayHeader) + elem_class.size * elems))
+    gc_alloc_object(vm, array_type, transmute(^^ObjectHeader)&array_obj, i64(size_of(ArrayHeader) + elem_class.size * elems))
     array_obj.length = elems 
     output^ = array_obj
 }

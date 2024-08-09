@@ -881,7 +881,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
             case .d2l:
                 cvttsd2si(assembler, rax, at(rbp, stack_base - 8 * stack_count))
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
+                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .l2d:
                 cvtsi2sd_mem64(assembler, xmm0, at(rbp, stack_base - 8 * stack_count))
                 movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)

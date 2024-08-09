@@ -15,6 +15,13 @@ Class_desiredAssertionStatus0 :: proc "c" () -> i32 {
 /// getClassLoader0 ()Ljava/lang/ClassLoader;
 Class_getClassLoader0 :: proc "c" () -> ^kava.ObjectHeader { return nil }
 
+/// isPrimitive ()Z
+Class_isPrimitive :: proc "c" (this: ^kava.ObjectHeader) -> bool {
+    using kava
+    context = vm.ctx
+    class := transmute(^Class)get_object_field(this, "handle")
+    return class.class_type == ClassType.Primitive
+}
 /// isArray ()Z
 Class_isArray :: proc "c" (this: ^kava.ObjectHeader) -> bool {
     using kava

@@ -144,6 +144,20 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
             movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
         }
         else {
+            if target.ret_type.class_type == .Primitive {
+                #partial switch target.ret_type.primitive {
+                    case .Int:
+                        mov(assembler, eax, eax)
+                    case .Short, .Char:
+                        mov(assembler, cx, ax)
+                        xor(assembler, eax, eax)
+                        mov(assembler, ax, cx)
+                    case .Byte, .Boolean:
+                        mov(assembler, cl, al)
+                        xor(assembler, eax, eax)
+                        mov(assembler, al, cl)
+                }
+            }
             mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
         }
     }
@@ -218,6 +232,20 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
             movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
         }
         else {
+            if target.ret_type.class_type == .Primitive {
+                #partial switch target.ret_type.primitive {
+                    case .Int:
+                        mov(assembler, eax, eax)
+                    case .Short, .Char:
+                        mov(assembler, cx, ax)
+                        xor(assembler, eax, eax)
+                        mov(assembler, ax, cx)
+                    case .Byte, .Boolean:
+                        mov(assembler, cl, al)
+                        xor(assembler, eax, eax)
+                        mov(assembler, al, cl)
+                }
+            }
             mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
         }
     }

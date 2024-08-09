@@ -133,3 +133,6 @@ run-helloworld-java: $(KAVA) testclasses/helloworld/HelloWorld.class
 .PHONY: run-tictactoe
 run-tictactoe: $(KAVA) testclasses/tictactoe/Main.class
 	./$(KAVA) -cp testclasses tictactoe/Main
+.PHONY: debug-tictactoe
+debug-tictactoe: $(KAVA) testclasses/tictactoe/Main.class
+	$(GDB) --args ./$(KAVA) -cp testclasses tictactoe/Main

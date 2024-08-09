@@ -461,7 +461,7 @@ print_class_flags :: proc(flags: ClassAccessFlags) {
     } 
 }
 print_usage :: proc() {
-    fmt.println("usage: classparser <classfile>")
+    fmt.println("usage: classparser <classfile> [methodname method-descriptor]")
 }
 error :: proc(str: string, args: ..any) {
     fmt.printf(str, ..args)
@@ -1527,7 +1527,7 @@ read_attr :: proc(reader: ^Reader) -> Maybe(AttributeInfo) {
         info = attr_data,
     }
 }
-print_class_info :: proc(class: ClassFile) {
+print_class_info :: proc(class: ClassFile, method_name: string, method_descriptor: string) {
 
     for info,i in class.constant_pool {
         #partial switch _ in info {
@@ -1611,18 +1611,38 @@ print_class_info :: proc(class: ClassFile) {
         fmt.printf(" %s %s\n", class.constant_pool[fld.descriptor_index - 1].(UTF8Info).str, class.constant_pool[fld.name_index - 1].(UTF8Info).str)
     }
     fmt.printf("Method count: %i\n", len(class.methods))
-    for method in class.methods {
-        print_flags(method.access_flags)
-        classs := class
-        fmt.printf(" %s %s\n", class.constant_pool[method.descriptor_index - 1].(UTF8Info).str, class.constant_pool[method.name_index - 1].(UTF8Info).str)
-        if method.bytecode != nil {
-            code := method.bytecode.(CodeAttribute)
-            fmt.printf("max_stack: %i max_locals: %i\n", code.max_stack, code.max_locals)
-            for instr in code.code {
-                print_instruction(instr, os.stdout)
+    if method_name == "" {
+        for method in class.methods {
+            print_flags(method.access_flags)
+            classs := class
+            fmt.printf(" %s %s\n", class.constant_pool[method.descriptor_index - 1].(UTF8Info).str, class.constant_pool[method.name_index - 1].(UTF8Info).str)
+            if method.bytecode != nil {
+                code := method.bytecode.(CodeAttribute)
+                fmt.printf("max_stack: %i max_locals: %i\n", code.max_stack, code.max_locals)
+                for instr in code.code {
+                    print_instruction(instr, os.stdout)
+                }
+                fmt.println(method.bytecode.(CodeAttribute).exception_table)
             }
-            fmt.println(method.bytecode.(CodeAttribute).exception_table)
         }
+    } else {
+        for method in class.methods {
+            methodname :=  class.constant_pool[method.name_index - 1].(UTF8Info).str 
+            methoddescr := class.constant_pool[method.descriptor_index - 1].(UTF8Info).str 
+            if method_name != methodname || method_descriptor != methoddescr do continue
+            print_flags(method.access_flags)
+            classs := class
+            fmt.printf(" %s %s\n", class.constant_pool[method.descriptor_index - 1].(UTF8Info).str, class.constant_pool[method.name_index - 1].(UTF8Info).str)
+            if method.bytecode != nil {
+                code := method.bytecode.(CodeAttribute)
+                fmt.printf("max_stack: %i max_locals: %i\n", code.max_stack, code.max_locals)
+                for instr in code.code {
+                    print_instruction(instr, os.stdout)
+                }
+                fmt.println(method.bytecode.(CodeAttribute).exception_table)
+            }
+        }
+
     }
     fmt.println("Bootstrap methods: ")
     for method in class.bootstrap_methods {
@@ -1753,9 +1773,16 @@ jutf_decode :: proc(bytes: []u8) -> (res: Maybe(string)) {
 
 main :: proc() {
     args := os.args
-    if len(args) != 2 {
+    if len(args) != 2 && len(args) != 4 {
         print_usage()
         os.exit(0)
+    }
+    method_name := ""
+    method_descriptor := ""
+
+    if len(args) == 4 {
+        method_name = args[2]
+        method_descriptor = args[3]
     }
     classfilename := args[1]
     if !os.exists(classfilename) {
@@ -1770,6 +1797,6 @@ main :: proc() {
         error(classm.error.(string)) 
     }
     class := classm.value.(ClassFile)
-    print_class_info(class)
+    print_class_info(class, method_name, method_descriptor)
 
 }

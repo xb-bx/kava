@@ -112,10 +112,18 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
         kava.gc_alloc_string(vm, home_dir, &str)
         delete(home_dir)
         return str
-    }
-    else {
+    } else if prop == "user.language.format" {
+        return nil
+    } else if prop == "user.script.format" {
+        return nil
+    } else if prop == "user.country.format" {
+        return nil
+    } else if prop == "user.variant.format" {
+        return nil
+    } else {
         fmt.println(prop)
-        panic("exception")
+        //panic("exception")
+        return nil
     }
     return nil
 //     return nil
