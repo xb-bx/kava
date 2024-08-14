@@ -29,6 +29,7 @@ else
 endif
 GDBPLUGIN=bin/gdbplugin.so
 JRE=bin/jre
+.DEFAULT_GOAL=all
 
 
 .PHONY: phony
@@ -36,7 +37,7 @@ define DEPENDABLE_VAR
 $1: phony
 	@# 4 dollar-signs in a row to attract money 
 	@if [ -f $1 ]; then VALUE=`cat $1`; else touch $1; VALUE=""; fi; \
-	if [[ "$$$$VALUE" != '$($1)' ]]; then \
+	if [ "$$$$VALUE" != '$($1)' ]; then \
 		echo -n '$($1)' > $1; \
 	fi
 endef
