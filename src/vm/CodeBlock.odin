@@ -1119,7 +1119,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     if typ.class != arg && !is_stacktype_subtype_of(typ, arg) && !(type_is_integer(typ.class) && type_is_integer(arg)) {
                         return verification_error("Invalid bytecode. Wrong argument type", this_method, instr)
                     }
-                    if typ.class.name == "double" || typ.class.name == "long" {
+                    if !typ.is_null && (typ.class.name == "double" || typ.class.name == "long") {
                         argi += 1
                     }
                     argi += 1

@@ -17,40 +17,19 @@ import "core:sys/unix"
 import "core:unicode/utf16"
 import kavavm "kava:vm"
 
-
+OS_UNIX :: kavavm.OS_UNIX
 error :: proc(str: string, args: ..any) {
     fmt.printf(str, ..args)
     fmt.println()
     os.exit(-1)
 }
-when ODIN_OS == .Linux {
+when OS_UNIX {
     DIR_SEPARATOR :: ":" 
 } else when ODIN_OS == .Windows {
     DIR_SEPARATOR :: ";"
 }
 print_usage :: proc() {
     fmt.println("usage: kava [-options] class [args...]")
-}
-get_executable_path :: proc () -> string {
-    when ODIN_OS == .Linux {
-        buf := make([]u8, 512)
-        defer delete(buf)
-        buf_raw: rawptr = slice.as_ptr(buf)
-        n := unix.sys_readlink("/proc/self/exe", buf_raw, len(buf)) 
-        return strings.clone_from_bytes(buf[:n])
-
-    } else when ODIN_OS == .Windows {
-        buf := make([]u16, 512)
-        defer delete(buf)
-        buf_raw := slice.as_ptr(buf)
-        n := windows.GetModuleFileNameW(nil, buf_raw, u32(len(buf)))
-        result_buf := make([]u8, 1024)
-        defer delete(result_buf)
-        strlen := utf16.decode_to_utf8(result_buf, buf[:int(n)])
-        return strings.clone_from_bytes(result_buf[:strlen])
-    } else {
-        panic("not implemented")
-    }
 }
 main :: proc() {
     using kavavm
@@ -60,7 +39,7 @@ main :: proc() {
         print_usage()
         return
     }
-    executable := get_executable_path()
+    executable := os.args[0]
     executable_dir := filepath.dir(executable)
     classpaths:[dynamic]string = make([dynamic]string)
     combine := make([]string, 2)

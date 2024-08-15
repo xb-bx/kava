@@ -1,6 +1,6 @@
 package shared
-import "core:fmt"
 import "base:runtime"
+
 Result :: struct($TOk: typeid, $TErr: typeid) {
     value: Maybe(TOk),
     error: Maybe(TErr),

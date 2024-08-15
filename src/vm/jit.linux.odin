@@ -1,4 +1,4 @@
-//+build linux
+//+build linux,freebsd,openbsd,netbsd
 package vm
 import "x86asm:x86asm"
 import "kava:classparser"
@@ -252,9 +252,6 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
 }
 
 
-free_executable :: proc(ptr: [^]u8, size: uint) {
-    assert(unix.sys_munmap(rawptr(ptr), size) == 0)
-}
 
 jit_ensure_clinit_called :: proc(using ctx: ^JittingContext, class: ^Class) {
     using x86asm

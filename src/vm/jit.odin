@@ -61,7 +61,7 @@ write_replace_descriptor :: proc(builder: ^strings.Builder, str: string) {
     }
 }
 jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Handle) {
-    if !os.exists("cache") {
+    if !shared.file_exists("cache") {
         err := os.make_directory("cache", 0o777)
         if err != 0 {
             panic("could not create folder")

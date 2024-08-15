@@ -48,20 +48,23 @@ $(eval $(call DEPENDABLE_VAR,ODIN_FLAGS))
 all: $(KAVA) $(CLASSPARSER) $(GDBPLUGIN) $(JRE)
 
 $(NATIVEGENERATOR): src/native-generator.odin
+	mkdir -p bin
 	odin build src/native-generator.odin -file -out:$@
 
 src/vm/native/%.generated.odin: src/vm/native/%.odin $(NATIVEGENERATOR)
 	./$(NATIVEGENERATOR) $<
 src/vm/native/initialize.generated.odin: $(GENERATED) $(NATIVEGENERATOR)
 	./$(NATIVEGENERATOR) initializer
-
 libs/odin-zip: 
 	mkdir -p libs
 	git clone https://github.com/xb-bx/odin-zip $@
+	git clone https://github.com/kuba--/zip libs/odin-zip/libzip
 	@if [ "$(OS)" = "Windows_NT" ]; then\
 		cd libs/odin-zip; ./build.bat;\
 	else \
-		cd libs/odin-zip; ./build.sh; \
+		cd libs/odin-zip/libzip; \
+		cc -c src/zip.c -o zip.o; \
+		ar rcs libzip.a zip.o; \
 	fi
 libs/x86asm:
 	mkdir -p libs

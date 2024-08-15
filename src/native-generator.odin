@@ -7,7 +7,7 @@ import "core:odin/parser"
 import "core:odin/ast"
 import "core:slice"
 import "core:strings"
-
+import "base:intrinsics"
 generate_native_methods :: proc(needs_generation: string) {
     pkg, ok := parser.parse_package_from_path("src/vm/native")
     if !ok {
@@ -58,7 +58,14 @@ generate_native_methods :: proc(needs_generation: string) {
             fmt.sbprintln(&builder, "}")
             res := strings.to_string(builder)
             defer delete(res)
-            os.write_entire_file(fmt.aprintf("src/vm/native/%s.generated.odin", classname_dots), slice.bytes_from_ptr(raw_data(res), len(res)))
+
+            genpath := fmt.aprintf("src/vm/native/%s.generated.odin", classname_dots)
+            defer delete(genpath)
+            handle, err := os.open(genpath, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o640)
+            assert(err == nil)
+            defer os.close(handle)
+            os.write(handle, slice.bytes_from_ptr(raw_data(res), len(res)))
+
         }
     
 
@@ -87,7 +94,10 @@ initializer :: proc() {
     fmt.sbprintln(&builder, "}")
     res := strings.to_string(builder)
     defer delete(res)
-    os.write_entire_file("src/vm/native/initialize.generated.odin", slice.bytes_from_ptr(raw_data(res), len(res)))
+    handle, err := os.open("src/vm/native/initialize.generated.odin", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o640)
+    assert(err == nil)
+    defer os.close(handle)
+    os.write(handle, slice.bytes_from_ptr(raw_data(res), len(res)))
 }
 
 main :: proc() {

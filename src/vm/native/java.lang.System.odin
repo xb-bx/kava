@@ -6,6 +6,7 @@ import "core:strings"
 import "core:fmt"
 import "core:os"
 import "core:time"
+OS_UNIX :: kava.OS_UNIX
 
 /// currentTimeMillis ()J
 System_currentTimeMillis :: proc "c" () -> i64 {
@@ -138,7 +139,7 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     return nil
 //     return nil
 }
-when ODIN_OS == .Linux {
+when OS_UNIX {
     /// registerNatives ()V
     System_registerNatives :: proc "c" () {
         using kava

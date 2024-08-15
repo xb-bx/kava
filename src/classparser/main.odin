@@ -1785,7 +1785,7 @@ main :: proc() {
         method_descriptor = args[3]
     }
     classfilename := args[1]
-    if !os.exists(classfilename) {
+    if !shared.file_exists(classfilename) {
         error("File %s does not exists", classfilename)
     }
     bytes, ok := os.read_entire_file(classfilename)

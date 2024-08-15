@@ -29,7 +29,7 @@ Class_desiredAssertionStatus0 :: proc "c" () -> i32 {
     return 0
 }
 /// getDeclaringClass0 ()Ljava/lang/Class;
-Class_getDeclaringClass0 :: proc "c" () -> ^kava.ObjectHeader { context = {}; fmt.println("BOOBIES"); return nil }
+Class_getDeclaringClass0 :: proc "c" () -> ^kava.ObjectHeader { return nil }
 
 /// getEnclosingMethod0 ()[Ljava/lang/Object;
 Class_getEnclosingMethod0 :: proc "c" () -> ^kava.ObjectHeader { return nil }
