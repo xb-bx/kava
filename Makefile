@@ -16,17 +16,10 @@ ODIN_FLAGS ?=\
 		   -use-separate-modules \
 		   -error-pos-style:unix
 GDB=/opt/gdb11/bin/gdb
-ifeq ($(OS), Windows_NT)
-	KAVA=bin/kava.exe
-	CLASSPARSER=bin/classparser.exe
-	NATIVEGENERATOR=bin/native-generator.exe
-	JRE_URL=https://builds.openlogic.com/downloadJDK/openlogic-openjdk-jre/8u392-b08/openlogic-openjdk-jre-8u392-b08-windows-x64.zip
-else
-	KAVA=bin/kava
-	CLASSPARSER=bin/classparser
-	NATIVEGENERATOR=bin/native-generator
-	JRE_URL=https://builds.openlogic.com/downloadJDK/openlogic-openjdk-jre/8u392-b08/openlogic-openjdk-jre-8u392-b08-linux-x64.tar.gz
-endif
+KAVA=bin/kava
+CLASSPARSER=bin/classparser
+NATIVEGENERATOR=bin/native-generator
+JRE_URL=https://builds.openlogic.com/downloadJDK/openlogic-openjdk-jre/8u392-b08/openlogic-openjdk-jre-8u392-b08-linux-x64.tar.gz
 GDBPLUGIN=bin/gdbplugin.so
 JRE=bin/jre
 .DEFAULT_GOAL=all
@@ -59,13 +52,9 @@ libs/odin-zip:
 	mkdir -p libs
 	git clone https://github.com/xb-bx/odin-zip $@
 	git clone https://github.com/kuba--/zip libs/odin-zip/libzip
-	@if [ "$(OS)" = "Windows_NT" ]; then\
-		cd libs/odin-zip; ./build.bat;\
-	else \
-		cd libs/odin-zip/libzip; \
-		cc -c src/zip.c -o zip.o; \
-		ar rcs libzip.a zip.o; \
-	fi
+	cd libs/odin-zip/libzip; \
+	cc -c src/zip.c -o zip.o; \
+	ar rcs libzip.a zip.o; \
 libs/x86asm:
 	mkdir -p libs
 	git clone https://github.com/xb-bx/x86asm $@
@@ -73,11 +62,7 @@ libs/x86asm:
 $(JRE):
 	mkdir -p $(JRE)
 	wget $(JRE_URL) -O $(JRE)/jre.tar.gz
-	@if [ $(OS) = "Windows_NT" ]; then \
-		unzip -o $(JRE)/jre.tar.gz -d $(JRE); \
-	else \
-		tar xvf $(JRE)/jre.tar.gz -C $(JRE); \
-	fi
+	tar xvf $(JRE)/jre.tar.gz -C $(JRE); \
 	find $(JRE) -name "*.jar" | xargs -I {} cp {} $(JRE)/
 	ls -1a $(JRE)/*.jar | xargs -I {} unzip -o -d $(JRE) {}
 

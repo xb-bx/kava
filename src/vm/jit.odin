@@ -347,13 +347,8 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     using classparser
     using x86asm 
     reg_args : []Reg64 = nil
-    when ODIN_OS == .Windows {
-        r := [?]Reg64 { rcx, rdx, r8, r9 }
-        reg_args = r[:]
-    } else {
-        r := [?]Reg64 { rdi, rsi, rdx, rcx, r8, r9 }
-        reg_args = r[:]
-    }
+    r := [?]Reg64 { rdi, rsi, rdx, rcx, r8, r9 }
+    reg_args = r[:]
     stack_count = cast(i32)cb.stack_at_start.count
     set_label(assembler, labels[cb.start])
     labels[cb.start] = { id = labels[cb.start].id, offset = len(assembler.bytes) }
@@ -423,20 +418,16 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 }
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case ._return:
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
                 mov(assembler, rax, transmute(int)stack_trace_pop)
                 mov(assembler, parameter_registers[0], transmute(int)vm)
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
                 mov(assembler, rsp, rbp)
                 pop(assembler, rbp)
                 ret(assembler)
             case .dreturn, .freturn:
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
                 mov(assembler, rax, transmute(int)stack_trace_pop)
                 mov(assembler, parameter_registers[0], transmute(int)vm)
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
                 stack_count -= 1
                 movsd(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1))) 
                 mov(assembler, rsp, rbp)
@@ -448,11 +439,9 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 and(assembler, rsp, rax)
 
                 
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
                 mov(assembler, rax, transmute(int)stack_trace_pop)
                 mov(assembler, parameter_registers[0], transmute(int)vm)
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
                 //addsx(assembler, rsp, i32(8))
                 stack_count -= 1
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
@@ -1123,9 +1112,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
                 lea(assembler, parameter_registers[3], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)gc_alloc_array)
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
             case .newarray:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 mov(assembler, reg_args[0], transmute(int)vm)
@@ -1134,9 +1121,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, reg_args[2], at(rbp, stack_base - 8 * stack_count))
                 lea(assembler, reg_args[3], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)gc_alloc_array)
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
             case .new:
                 stack_count += 1 
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
@@ -1148,9 +1133,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 addsx(assembler, reg_args[2], i32(stack_base - 8 * stack_count))
                 mov(assembler, reg_args[3], transmute(int)cast(int)-1)
                 mov(assembler, rax, transmute(int)gc_alloc_object)
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
             case .multianewarray:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op1
                 dimensions := cast(i32)instruction.(classparser.SimpleInstruction).operand.(classparser.TwoOperands).op2
@@ -1172,9 +1155,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, reg_args[3], rbp)
                 addsx(assembler, reg_args[3], i32(stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)gc_alloc_multiarray)
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
                 addsx(assembler, rsp, elems_size)
             case .dup_x1:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
@@ -1212,9 +1193,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, reg_args[2], rsp)
                 lea(assembler, reg_args[3], at(rsp, 8))
                 mov(assembler, rax, transmute(int)throw_impl)
-                when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) } 
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) } 
                 mov(assembler, rdi, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rbp, at(rsp))
                 mov(assembler, r10, rbp)
@@ -1227,9 +1206,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, parameter_registers[1], transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
                 mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)instanceof)
-                when ODIN_OS == .Windows { subsx(assembler, rsp, 32) }
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
                 andsx(assembler, rax, i32(0xff))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .checkcast:
@@ -1239,9 +1216,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 mov(assembler, parameter_registers[1], transmute(int)get_class(vm, method.parent.class_file, index).value.(^Class))
                 mov(assembler, parameter_registers[2], at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, rax, transmute(int)checkcast)
-                when ODIN_OS == .Windows { subsx(assembler, rsp, 32) }
                 call(assembler, rax)
-                when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
             case .arraylength:
                 mov(assembler, rax, at(rbp, stack_base - 8 * stack_count))
                 jit_null_check(ctx, rax, get_instr_offset(instruction))
@@ -1333,27 +1308,21 @@ jit_div_by_zero_check :: proc(using ctx: ^JittingContext, reg: x86asm.Reg64, pc:
     mov(assembler, parameter_registers[2], rsp)
     mov(assembler, parameter_registers[3], cast(int)-1)
     mov(assembler, rax, transmute(int)gc_alloc_object)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
 
 
 
     mov(assembler, parameter_registers[0], at(rsp))
     mov(assembler, parameter_registers[1], transmute(int)msg)
     mov(assembler, rax, transmute(int)&ctor.jitted_body)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, at(rax))
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
 
     mov(assembler, parameter_registers[0], transmute(int)vm)
     mov(assembler, parameter_registers[1], at(rsp))
     mov(assembler, parameter_registers[2], rsp)
     addsx(assembler, parameter_registers[2], i32(8))
     mov(assembler, rax, transmute(int)throw_impl)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
     mov(assembler, rdi, at(rsp))
     mov(assembler, rbp, at(rsp, 8))
     jmp(assembler, rax)
@@ -1374,17 +1343,13 @@ jit_null_check :: proc(using ctx: ^JittingContext, reg: x86asm.Reg64, pc: int) {
     mov(assembler, parameter_registers[2], rsp)
     mov(assembler, parameter_registers[3], cast(int)-1)
     mov(assembler, rax, transmute(int)gc_alloc_object)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
     mov(assembler, parameter_registers[0], transmute(int)vm)
     mov(assembler, parameter_registers[1], at(rsp))
     mov(assembler, parameter_registers[2], rsp)
     addsx(assembler, parameter_registers[2], i32(8))
     mov(assembler, rax, transmute(int)throw_impl)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
     mov(assembler, rdi, at(rsp))
     mov(assembler, rbp, at(rsp, 8))
     jmp(assembler, rax)
@@ -1412,17 +1377,13 @@ jit_bounds_check :: proc(using ctx: ^JittingContext, array: x86asm.Reg64, index:
     mov(assembler, parameter_registers[2], rsp)
     mov(assembler, parameter_registers[3], transmute(int)cast(int)-1)
     mov(assembler, rax, transmute(int)gc_alloc_object)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
     mov(assembler, parameter_registers[0], transmute(int)vm)
     mov(assembler, parameter_registers[1], at(rsp))
     mov(assembler, parameter_registers[2], rsp)
     addsx(assembler, parameter_registers[2], i32(8))
     mov(assembler, rax, transmute(int)throw_impl)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
     mov(assembler, rdi, at(rsp))
     mov(assembler, rbp, at(rsp, 8))
     jmp(assembler, rax)
@@ -1473,10 +1434,8 @@ jit_invoke_dynamic :: proc(using ctx: ^JittingContext, instruction: classparser.
     mov(assembler, parameter_registers[1], transmute(int)lambdaclass)
     mov(assembler, parameter_registers[2], rsp)
     movsx(assembler, parameter_registers[3], -1)
-    when ODIN_OS == .Windows { subsx(assembler, rsp, 32) }
     mov(assembler, rax, transmute(int)gc_alloc_object)
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, 32) }
     mov(assembler, rcx, at(rsp))
     addsx(assembler, rsp, 16)
     closured :=  len(targetmethod.args) - len(target.args)
@@ -1527,12 +1486,19 @@ count_args :: proc(method: ^Method) -> i32 {
     }
     return args
 }
-jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method) -> ^[^]u8 {
+jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method, cached: ^VirtualCache) -> ^[^]u8 {
     using classparser
     context = vm.ctx
     if object == nil {
         throw_NullPointerException(vm)
         return nil
+    }
+    if cached != nil && cached.method != nil && cached.method.parent == object.class {
+        cached.count += 1
+        return &cached.method.jitted_body
+    } 
+    if cached != nil {
+        cached.count -= 1
     }
     found :^Method= nil
     class := object.class
@@ -1566,6 +1532,10 @@ jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method
     }
     if found == nil {
         panic("")
+    }
+    if cached != nil && (cached.method == nil || cached.count <= 0)  { 
+        cached.method = found
+        cached.count = 0 
     }
     return &found.jitted_body
 }
@@ -1604,11 +1574,9 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
     mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rbp)
     movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, size))), i32(stack_size + size_of(StackEntry)))
     mov(assembler, rax, transmute(int)stack_trace_push)
-    mov(assembler, ODIN_OS == .Windows ? rcx : rdi, rbp)
-    subsx(assembler, ODIN_OS == .Windows ? rcx : rdi, i32(32))
-    when ODIN_OS == .Windows { subsx(assembler, rsp, i32(32)) }
+    mov(assembler, rdi, rbp)
+    subsx(assembler, rdi, i32(32))
     call(assembler, rax)
-    when ODIN_OS == .Windows { addsx(assembler, rsp, i32(32)) }
     return indices
 }
 stacktrace := make([dynamic]^StackEntry)

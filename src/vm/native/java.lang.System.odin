@@ -70,7 +70,12 @@ arraycopy :: proc "c" (src: ^kava.ArrayHeader, src_pos: i32, dest: ^kava.ArrayHe
 
 }
 
-
+/// getProperty (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String; replace
+System_getProperty2 :: proc "c" (str: ^kava.ObjectHeader, def: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+    res := System_getProperty(str)
+    if res == nil do return def
+    return res
+}
 /// getProperty (Ljava/lang/String;)Ljava/lang/String; replace
 System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
@@ -189,49 +194,6 @@ when OS_UNIX {
         fileInputStream_init(in_ref^, infld^);
 
     }
-}
-else when ODIN_OS == .Windows {
-
-
-    /// registerNatives ()V
-    System_registerNatives :: proc "c" () {
-        using kava
-        context = vm.ctx
-        system := vm.classes["java/lang/System"]
-        fdclass := load_class(vm, "java/io/FileDescriptor").value.(^Class)  
-        fdclass.class_initializer_called = true
-        infld := transmute(^^ObjectHeader)&find_field(fdclass, "in").static_data
-        outfld := transmute(^^ObjectHeader)&find_field(fdclass, "out").static_data
-        errfld := transmute(^^ObjectHeader)&find_field(fdclass, "err").static_data
-
-        standardStream := transmute(proc "c" (fd: int) -> ^ObjectHeader)(find_method(fdclass, "standardStream", "(I)Ljava/io/FileDescriptor;").jitted_body)
-        infld^ = standardStream(0)
-        outfld^ = standardStream(1)
-        errfld^ = standardStream(2)
-//         if true { panic("") }
-
-
-
-        fileOutputStream := load_class(vm, "java/io/FileOutputStream").value.(^Class)
-        printStream := load_class(vm, "java/io/PrintStream").value.(^Class)
-        fileOutputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileOutputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
-        printStream_init := (transmute(proc "c" (this: ^ObjectHeader, stream: ^ObjectHeader))find_method(printStream, "<init>", "(Ljava/io/OutputStream;)V").jitted_body)
-
-        out_printStream_ref := transmute(^^ObjectHeader)&find_field(system, "out").static_data
-        gc_alloc_object(vm, printStream, out_printStream_ref)
-
-        out_file_stream: ^ObjectHeader = nil
-        gc_alloc_object(vm, fileOutputStream, &out_file_stream)
-        fileOutputStream_init(out_file_stream, outfld^)
-        
-        printStream_init(out_printStream_ref^, out_file_stream)
-
-
-
-
-
-    }
-
 }
 /// <clinit> ()V replace
 System_clinit :: proc "c" ()  { System_registerNatives() }

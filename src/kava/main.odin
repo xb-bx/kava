@@ -23,11 +23,7 @@ error :: proc(str: string, args: ..any) {
     fmt.println()
     os.exit(-1)
 }
-when OS_UNIX {
-    DIR_SEPARATOR :: ":" 
-} else when ODIN_OS == .Windows {
-    DIR_SEPARATOR :: ";"
-}
+DIR_SEPARATOR :: ":" 
 print_usage :: proc() {
     fmt.println("usage: kava [-options] class [args...]")
 }

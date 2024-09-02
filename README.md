@@ -17,10 +17,6 @@ run
 ```sh
 make all
 ```
-## on Windows
-use [Cygwin](https://www.cygwin.com/)
-
-
 ### Debugging with gdb
 
 - Build the project. 

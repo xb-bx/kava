@@ -245,11 +245,9 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
     movsx(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(0))
     mov(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rbp)
     mov(&assembler, rax, transmute(int)stack_trace_push)
-    mov(&assembler, ODIN_OS == .Windows ? rcx : rdi, rbp)
-    subsx(&assembler, ODIN_OS == .Windows ? rcx : rdi, i32(32))
-    when ODIN_OS == .Windows { subsx(&assembler, rsp, i32(32)) }
+    mov(&assembler, rdi, rbp)
+    subsx(&assembler, rdi, i32(32))
     call(&assembler, rax)
-    when ODIN_OS == .Windows { addsx(&assembler, rsp, i32(32)) }
 
     ctx := JittingContext {}
     ctx.vm = vm
@@ -289,11 +287,9 @@ load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemeth
         jit_invoke_method(&ctx, target, {}, false)
     }
     
-    when ODIN_OS == .Windows { subsx(&assembler, rsp, i32(32)) }
     mov(&assembler, rax, transmute(int)stack_trace_pop)
     mov(&assembler, parameter_registers[0], transmute(int)vm)
     call(&assembler, rax)
-    when ODIN_OS == .Windows { addsx(&assembler, rsp, i32(32)) }
     if ctx.stack_count != 0 {
         mov(&assembler, rax, at(rbp, ctx.stack_base - 8 * ctx.stack_count))
     } 
@@ -601,7 +597,6 @@ prepare_before_jitted :: proc(vm: ^VM) {
     mov(&assembler, parameter_registers[1], rax)
     mov(&assembler, parameter_registers[2], int(0))
     mov(&assembler, rax, transmute(int)jit_method_lazy)
-    when ODIN_OS == .Windows { subsx(&assembler, rsp, 32) }
     mov(&assembler, r10, transmute(int)bootstrap_after_jitted)
     push(&assembler, r10)
     jmp(&assembler, rax)
@@ -616,7 +611,6 @@ prepare_after_jitted :: proc(vm: ^VM) {
     assembler := Assembler {}
     init_asm(&assembler, false)
     defer delete_asm(&assembler)
-    when ODIN_OS == .Windows { addsx(&assembler, rsp, 32) }
     regi := len(parameter_registers) - 1
     xmmreg := 7
     mov(&assembler, r10, rsp)

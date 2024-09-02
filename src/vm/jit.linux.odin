@@ -67,6 +67,10 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
     }
     return sub_size
 }
+VirtualCache :: struct {
+    method: ^Method,
+    count: int,
+}
 
 jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instruction: classparser.Instruction, virtual_call: bool = true) {
     using x86asm
@@ -81,9 +85,11 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
     defer delete(regular)
     defer delete(fp)
     if virtual {
+        ptr := new_clone(VirtualCache {})
         mov(assembler, rdi, transmute(int)vm)
         mov(assembler, rsi, at(rbp, stack_base - 8 * (stack_count - args)))
         mov(assembler, rdx, transmute(int)target)
+        mov(assembler, rcx, transmute(int)ptr)
         mov(assembler, rax, transmute(int)jit_resolve_virtual)
         call(assembler, rax)
         mov(assembler, r10, rax)

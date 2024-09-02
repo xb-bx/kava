@@ -82,6 +82,11 @@ Unsafe_comapareAndSwapInt :: proc "c" (this: ^kava.ObjectHeader, obj: ^kava.Obje
     return res
     
 }
+/// getIntVolatile (Ljava/lang/Object;J)I
+Unsafe_getIntVolatile :: proc "c" (this: ^kava.ObjectHeader, obj: ^kava.ObjectHeader, offset: int) -> i32 {
+    ptr := transmute(^i32)(transmute(int)obj + offset)
+    return intrinsics.volatile_load(ptr)
+}
 /// getObjectVolatile (Ljava/lang/Object;J)Ljava/lang/Object;
 Unsafe_getObjectVolatile :: proc "c" (this: ^kava.ObjectHeader, obj: ^kava.ObjectHeader, offset: int) -> ^kava.ObjectHeader {
     ptr := transmute(^^kava.ObjectHeader)(transmute(int)obj + offset)

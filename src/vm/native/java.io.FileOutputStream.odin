@@ -14,12 +14,7 @@ FileOutputStream_writeBytes :: proc "c" (this: ^kava.ObjectHeader, bytes: ^kava.
     using os
     context = vm.ctx
     fdObj := get_object_field_ref(this, "fd")^
-    when ODIN_OS == .Windows {
-        handle := Handle(get_object_field(fdObj, "handle"))
-    }
-    else {
-        handle := Handle(cast(i32)get_object_field(fdObj, "fd"))
-    }
+    handle := Handle(cast(i32)get_object_field(fdObj, "fd"))
     data := array_to_slice(u8, bytes)[off:off+len]
     if append {
         size, size_err := file_size(handle)
