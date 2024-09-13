@@ -54,7 +54,7 @@ libs/odin-zip:
 	git clone https://github.com/kuba--/zip libs/odin-zip/libzip
 	cd libs/odin-zip/libzip; \
 	cc -c src/zip.c -o zip.o; \
-	ar rcs libzip.a zip.o; \
+	ar rcs libzip.a zip.o;
 libs/x86asm:
 	mkdir -p libs
 	git clone https://github.com/xb-bx/x86asm $@

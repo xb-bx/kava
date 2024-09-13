@@ -39,7 +39,7 @@ generate_native_methods :: proc(needs_generation: string) {
                         if val.docs != nil && len(val.docs.list) > 0 {
                             
                             namenode :=val.names[0]
-                            procname, res := strings.cut(file.src, namenode.pos.offset, namenode.end.offset - namenode.pos.offset)
+                            procname := strings.cut(file.src, namenode.pos.offset, namenode.end.offset - namenode.pos.offset)
                             splited := strings.split(strings.trim(val.docs.list[0].text, "/ "), " ")
                             defer delete(splited)
                             if len(splited) == 2 {
