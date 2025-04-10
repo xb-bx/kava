@@ -7,7 +7,7 @@ import "core:fmt"
 
 
 /// intern ()Ljava/lang/String;
-String_intern :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+String_intern :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     context = vm.ctx
     res := kava.intern(&vm.internTable, this)
     return res

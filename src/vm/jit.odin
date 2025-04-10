@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package vm
 import "x86asm:x86asm"
 import "kava:classparser"
@@ -11,6 +12,7 @@ import "core:mem/virtual"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
+import "core:dynlib"
 
 ENABLE_GDB_DEBUGGING :: #config(ENABLE_GDB_DEBUGGING, true)
 BREAKPOINT_METHOD_NAME :: #config(BREAKPOINT_METHOD_NAME, "")
@@ -94,14 +96,27 @@ jit_create_bytecode_file_for_method :: proc(method: ^Method) -> (string, os.Hand
     return path, handle
 }
 LAZY_LENGTH :: 512 
+find_native_in_libraries :: proc (vm: ^VM, method: ^Method) -> ([^]u8, bool) {
+    name := fmt.aprintf("Java_%s_%s", method.parent.name, method.name)
+    defer delete(name)
+    for lib in vm.libraries {
+        if sym, ok := dynlib.symbol_address(lib, name); ok {
+            return transmute([^]u8)sym, true
+        }
+    }
+    return nil, false
+}
 jit_method_lazy :: proc "c" (vm: ^VM, method: ^Method, body_size: ^int = nil) -> [^]u8 {
     context = vm.ctx
     if hasFlag(method.access_flags, classparser.MethodAccessFlags.Native) {
         body, ok := vm.natives_table[method]
         if !ok {
-            fmt.println(method.name, method.descriptor, method.parent.name)
-            print_stack_trace()
-            panic("Unknown native")
+            body, ok = find_native_in_libraries(vm, method)
+            if !ok {
+                fmt.println(method.name, method.descriptor, method.parent.name)
+                print_stack_trace()
+                panic("Unknown native")
+            }
         }
         return body
     }

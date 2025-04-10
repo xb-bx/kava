@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package vm
 import "kava:shared"
 import "kava:classparser"
@@ -13,6 +14,7 @@ import "base:runtime"
 import "core:sys/windows"
 import "x86asm:x86asm"
 import "core:unicode/utf16"
+import "core:dynlib"
 when   ODIN_OS == .Linux \
     || ODIN_OS == .FreeBSD \ 
     || ODIN_OS == .NetBSD \
@@ -46,7 +48,6 @@ intern :: proc (internTable: ^InternHashTable, str: ^ObjectHeader) -> ^ObjectHea
     }
     buck := &internTable.buckets[abs(int(String_hashCode(str))) % len(internTable.buckets)]
     res := bucket_add_or_get_string(buck, str)
-    //fmt.printf("interned %s %i %p got %p %p\n", nstr, String_hashCode(str), str, res, buck)
     return res
 }
 bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^ObjectHeader {
@@ -112,10 +113,12 @@ VM :: struct {
     ctx: runtime.Context,
     gc: ^GC,
     natives_table: map[^Method][^]u8,
+    libraries: [dynamic]dynlib.Library,
     native_intitializers: map[string]proc(),
     classobj_to_class_map: map[^ObjectHeader]^Class,
     exe_allocator: ExeAllocator,
     internTable: InternHashTable,
+    jni_env: ^JNINativeInterface,
 }
 array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {
@@ -885,6 +888,12 @@ print_instruction_with_const :: proc(instr: classparser.Instruction, file: os.Ha
 
     }
     return 0
+}
+vm_load_library :: proc(vm: ^VM, lib: string) -> bool {
+    library, ok := dynlib.load_library(lib)  
+    if !ok do return false
+    append(&vm.libraries, library)
+    return true
 }
 
 

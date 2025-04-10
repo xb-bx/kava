@@ -1,4 +1,4 @@
-//+build linux,freebsd,openbsd,netbsd
+#+build linux,freebsd,openbsd,netbsd
 package vm
 import "x86asm:x86asm"
 import "kava:classparser"
@@ -95,7 +95,12 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
         mov(assembler, r10, rax)
     }
 
-    registers := [?]Reg64 {rsi, rdx, rcx, r8, r9}
+    registers := []Reg64 {rsi, rdx, rcx, r8, r9}
+    this_reg := rdi
+    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
+        this_reg = rsi
+        registers = []Reg64 {rdx, rcx, r8, r9}
+    }
 
     extra_args_size : i32 = 0
     if len(regular) > len(registers) {
@@ -130,8 +135,11 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
         }
     }
     stack_count -= args 
-    mov(assembler, rdi, at(rbp, stack_base - 8 * stack_count))
+    mov(assembler, this_reg, at(rbp, stack_base - 8 * stack_count))
     stack_count -= 1
+    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
+        mov(assembler, rdi, transmute(int)(&vm.jni_env))
+    }
     if virtual {
         call(assembler, at(r10))
     }
@@ -173,7 +181,10 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
     using x86asm
     
     args := count_args(target)
-    registers := [?]Reg64 {rdi, rsi, rdx, rcx, r8, r9}
+    registers := []Reg64 {rdi, rsi, rdx, rcx, r8, r9}
+    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
+        registers = []Reg64 {rsi, rdx, rcx, r8, r9}
+    }
 //     if method.name == "<clinit>" {
 //         initializer := find_method(target.parent, "<clinit>", "()V")
 //         if initializer != nil {
@@ -227,6 +238,9 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
     }
     stack_count -= args 
     mov(assembler, rax, transmute(int)&target.jitted_body)
+    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
+        mov(assembler, rdi, transmute(int)(&vm.jni_env))
+    }
     call(assembler, at(rax))
     if extra_args_size != 0 {
         addsx(assembler, rsp, i32(extra_args_size))

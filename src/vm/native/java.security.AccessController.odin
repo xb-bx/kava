@@ -1,8 +1,7 @@
 package native
 import kava "kava:vm"
-
 /// doPrivileged (Ljava/security/PrivilegedExceptionAction;)Ljava/lang/Object; 
-AccessController_doPriviliged2 :: proc "c" (action: ^kava.ObjectHeader) {
+AccessController_doPriviliged2 :: proc "c" (env: ^kava.JNINativeInterface, action: ^kava.ObjectHeader) {
     context = vm.ctx
     using kava
     actionclass := load_class(vm, "java/security/PrivilegedExceptionAction").value.(^Class)
@@ -11,7 +10,7 @@ AccessController_doPriviliged2 :: proc "c" (action: ^kava.ObjectHeader) {
 }
 
 /// doPrivileged (Ljava/security/PrivilegedAction;)Ljava/lang/Object; 
-AccessController_doPriviliged :: proc "c" (action: ^kava.ObjectHeader) {
+AccessController_doPriviliged :: proc "c" (env: ^kava.JNINativeInterface, action: ^kava.ObjectHeader) {
     context = vm.ctx
     using kava
     actionclass := load_class(vm, "java/security/PrivilegedAction").value.(^Class)

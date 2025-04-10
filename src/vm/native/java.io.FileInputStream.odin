@@ -7,11 +7,11 @@ import "core:fmt"
 import "core:io"
 
 /// initIDs ()V 
-FileInputStream_initIDs :: proc "c" () {
+FileInputStream_initIDs :: proc "c" (env: ^kava.JNINativeInterface, ) {
 }
 
 /// readBytes ([BII)I
-FileInputStream_readBytes :: proc "c" (this: ^kava.ObjectHeader, bytes: ^kava.ArrayHeader, off: i32, len: i32) -> i32 {
+FileInputStream_readBytes :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, bytes: ^kava.ArrayHeader, off: i32, len: i32) -> i32 {
     using kava
     context = vm.ctx
     fdObj := get_object_field_ref(this, "fd")^
@@ -22,11 +22,11 @@ FileInputStream_readBytes :: proc "c" (this: ^kava.ObjectHeader, bytes: ^kava.Ar
     return read == 0 ? -1 : i32(read)
 }
 /// available0 ()I 
-FileInputStream_available0 :: proc "c" (this: ^kava.ObjectHeader) -> i32 {
+FileInputStream_available0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> i32 {
     return 0
 }
 /// close0 ()V
-FileInputStream_close0 :: proc "c" (this: ^kava.ObjectHeader) {
+FileInputStream_close0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) {
     using kava 
     context = kava.vm.ctx
 
@@ -37,7 +37,7 @@ FileInputStream_close0 :: proc "c" (this: ^kava.ObjectHeader) {
 
 }
 /// open0 (Ljava/lang/String;)V
-FileInputStream_open0 :: proc "c" (this: ^kava.ObjectHeader, name: ^kava.ObjectHeader) {
+FileInputStream_open0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, name: ^kava.ObjectHeader) {
     using kava 
     context = kava.vm.ctx
     filename := javaString_to_string(name)

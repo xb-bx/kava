@@ -5,21 +5,22 @@ import "core:unicode/utf16"
 import "core:strings"
 import "core:fmt"
 import "core:os"
+import "core:dynlib"
 import "core:time"
 OS_UNIX :: kava.OS_UNIX
 
 /// currentTimeMillis ()J
-System_currentTimeMillis :: proc "c" () -> i64 {
+System_currentTimeMillis :: proc "c" (env: ^kava.JNINativeInterface, ) -> i64 {
     return i64(time.now()._nsec / 1000_000)
 }
 
 /// identityHashCode (Ljava/lang/Object;)I 
-System_identityHashCode :: proc(obj: ^kava.ObjectHeader) -> i32 {
+System_identityHashCode :: proc(env: ^kava.JNINativeInterface, obj: ^kava.ObjectHeader) -> i32 {
     return i32(transmute(int)obj)
 }
 
 /// arraycopy (Ljava/lang/Object;ILjava/lang/Object;II)V
-arraycopy :: proc "c" (src: ^kava.ArrayHeader, src_pos: i32, dest: ^kava.ArrayHeader, desr_pos: i32, count: i32) {
+arraycopy :: proc "c" (env: ^kava.JNINativeInterface, src: ^kava.ArrayHeader, src_pos: i32, dest: ^kava.ArrayHeader, desr_pos: i32, count: i32) {
     context = vm.ctx
     using kava
     if src == nil || dest == nil {
@@ -122,6 +123,13 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
         str: ^kava.ObjectHeader = nil 
         kava.gc_alloc_string(vm, ".", &str)
         return str
+    } else if prop == "java.library.path" {
+        str: ^kava.ObjectHeader = nil
+        ld_lib_path := os.get_env("LD_LIBRARY_PATH")
+        fmt.println("library path", ld_lib_path)
+        defer delete(ld_lib_path)
+        kava.gc_alloc_string(vm, ld_lib_path, &str)
+        return str
     } else if prop == "user.dir" {
         str: ^kava.ObjectHeader = nil 
         home_dir := os.get_env("HOME")
@@ -146,7 +154,7 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
 }
 when OS_UNIX {
     /// registerNatives ()V
-    System_registerNatives :: proc "c" () {
+    System_registerNatives :: proc "c" (env: ^kava.JNINativeInterface, ) {
         using kava
         context = vm.ctx
         system := vm.classes["java/lang/System"]
@@ -195,5 +203,26 @@ when OS_UNIX {
 
     }
 }
+/// mapLibraryName (Ljava/lang/String;)Ljava/lang/String; 
+System_mapLibraryName :: proc "c" (env: ^kava.JNINativeInterface, str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+    context = vm.ctx
+    s := kava.javaString_to_string(str)
+    defer delete(s)
+    lib := fmt.aprintf("lib%s.so", s)
+    defer delete(lib)
+    res: ^kava.ObjectHeader
+    kava.gc_alloc_string(vm, lib, &res)
+    return res
+}
+/// loadLibrary (Ljava/lang/String;)V replace
+System_loadLibrary :: proc "c" (str: ^kava.ObjectHeader) {
+    context = vm.ctx
+    s := kava.javaString_to_string(str)
+    defer delete(s)
+    lib := fmt.aprintf("lib%s.so", s)
+    defer delete(lib)
+    if !kava.vm_load_library(vm, lib) do panic("oopsie")
+}
+
 /// <clinit> ()V replace
-System_clinit :: proc "c" ()  { System_registerNatives() }
+System_clinit :: proc "c" ()  { System_registerNatives(nil) }

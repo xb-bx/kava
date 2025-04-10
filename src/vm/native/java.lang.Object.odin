@@ -4,26 +4,26 @@ import "core:fmt"
 import "core:mem"
 
 /// registerNatives ()V
-Object_registerNatives :: proc "c" () {}
+Object_registerNatives :: proc "c" (env: ^kava.JNINativeInterface, ) {}
 /// hashCode ()I
-hashCode :: proc "c" (this: ^kava.ObjectHeader) -> i32 {
+hashCode :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> i32 {
     return cast(i32)transmute(int)this
 }
 
 /// getClass ()Ljava/lang/Class;
-Object_getClass :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Object_getClass :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     context = vm.ctx
     return kava.get_class_object(vm, this.class)
 }
 /// clone ()Ljava/lang/Object;
-Object_clone :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Object_clone :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     if this.class.class_type == ClassType.Array {
         this_array := transmute(^ArrayHeader)this
         new_array : ^ArrayHeader = nil
         gc_alloc_array(vm, this.class.underlaying, this_array.length, &new_array)
-        arraycopy(this_array, 0, new_array, 0, i32(this_array.length))
+        arraycopy(env, this_array, 0, new_array, 0, i32(this_array.length))
         return transmute(^ObjectHeader)new_array
     }
     else {

@@ -15,7 +15,7 @@ ODIN_FLAGS ?=\
 		   -thread-count:$(shell nproc) \
 		   -use-separate-modules \
 		   -error-pos-style:unix
-GDB=/opt/gdb11/bin/gdb
+GDB=gdb
 KAVA=bin/kava
 CLASSPARSER=bin/classparser
 NATIVEGENERATOR=bin/native-generator
@@ -39,6 +39,9 @@ $(eval $(call DEPENDABLE_VAR,BREAKPOINT))
 $(eval $(call DEPENDABLE_VAR,ODIN_FLAGS))
 
 all: $(KAVA) $(CLASSPARSER) $(GDBPLUGIN) $(JRE)
+
+release:
+	ODIN_FLAGS="-o:speed -define:ENABLE_GDB_DEBUGGING=false -define:ENABLE_PATCHES=true" make all
 
 $(NATIVEGENERATOR): src/native-generator.odin
 	mkdir -p bin
@@ -125,3 +128,16 @@ run-tictactoe: $(KAVA) testclasses/tictactoe/Main.class
 .PHONY: debug-tictactoe
 debug-tictactoe: $(KAVA) testclasses/tictactoe/Main.class
 	$(GDB) --args ./$(KAVA) -cp testclasses tictactoe/Main
+
+testclasses/test-jni/HelloWorld.class: testclasses/test-jni/HelloWorld.java
+	make -C testclasses/test-jni
+.PHONY: run-jni
+run-jni: $(KAVA) testclasses/test-jni/HelloWorld.class testclasses/test-jni/libHelloWorld.so
+	LD_LIBRARY_PATH=$(PWD)/testclasses/test-jni:/lib ./$(KAVA) -cp testclasses/test-jni HelloWorld
+.PHONY: debug-jni
+debug-jni: $(KAVA) testclasses/test-jni/HelloWorld.class testclasses/test-jni/libHelloWorld.so
+	LD_LIBRARY_PATH=$(PWD)/testclasses/test-jni:/lib gdb --args ./$(KAVA) -cp testclasses/test-jni HelloWorld
+
+
+
+

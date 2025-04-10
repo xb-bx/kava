@@ -94,6 +94,7 @@ main :: proc() {
         native_intitializers = make(map[string]proc()),
         exe_allocator = {},
     })
+    jni_init(vm)
     intern_init(&vm.internTable)
     exealloc_init(&vm.exe_allocator)
     prepare_after_jitted(vm)

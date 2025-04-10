@@ -4,10 +4,10 @@ import kava "kava:vm"
 import "core:os"
 
 /// initIDs ()V
-initIDS :: proc "c" () {}
+initIDS :: proc "c" (env: ^kava.JNINativeInterface, ) {}
 
 /// set (I)J
-FileDescriptor_set :: proc "c" (fd: i32) -> os.Handle {
+FileDescriptor_set :: proc "c" (env: ^kava.JNINativeInterface, fd: i32) -> os.Handle {
     context = vm.ctx
     switch fd {
         case 0:

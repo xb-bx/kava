@@ -2,7 +2,7 @@ package native
 import kava "kava:vm"
 
 /// initialize ()V
-VM_initialize :: proc "c" () {}
+VM_initialize :: proc "c" (env: ^kava.JNINativeInterface, ) {}
 /// <clinit> ()V replace
 VM_clinit :: proc "c" () {}
 

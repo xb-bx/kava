@@ -1,4 +1,4 @@
-//+build freebsd,netbsd,openbsd
+#+build freebsd,netbsd,openbsd
 package shared 
 import "core:sys/posix"
 import "core:strings"

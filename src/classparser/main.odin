@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package classparser
 import "core:fmt"
 import "core:os"
