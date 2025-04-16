@@ -8,6 +8,8 @@ COLLECTIONS_FLAGS=$(addprefix -collection:, $(COLLECTIONS))
 
 NATIVE=$(shell find src/vm/native -type f | sed '/.generated/d')
 GENERATED=$(foreach t,$(NATIVE),$(subst .odin,.generated.odin,$(t)))
+NATIVE_NET=$(shell find src/vm/net -type f | sed '/.generated/d')
+GENERATED_NET=$(foreach t,$(NATIVE_NET),$(subst .odin,.generated.odin,$(t)))
 
 ODIN_FLAGS ?=\
 		   -o:none \
@@ -47,10 +49,14 @@ $(NATIVEGENERATOR): src/native-generator.odin
 	mkdir -p bin
 	odin build src/native-generator.odin -file -out:$@
 
+src/vm/net/%.generated.odin: src/vm/net/%.odin $(NATIVEGENERATOR)
+	./$(NATIVEGENERATOR) $< net
+src/vm/net/initialize.generated.odin: $(GENERATED_NET) $(NATIVEGENERATOR)
+	./$(NATIVEGENERATOR) initializer net 
 src/vm/native/%.generated.odin: src/vm/native/%.odin $(NATIVEGENERATOR)
-	./$(NATIVEGENERATOR) $<
+	./$(NATIVEGENERATOR) $< native
 src/vm/native/initialize.generated.odin: $(GENERATED) $(NATIVEGENERATOR)
-	./$(NATIVEGENERATOR) initializer
+	./$(NATIVEGENERATOR) initializer native
 libs/odin-zip: 
 	mkdir -p libs
 	git clone https://github.com/xb-bx/odin-zip $@
@@ -83,7 +89,7 @@ $(CLASSPARSER): $(CLASSPARSER_SRC) ODIN_FLAGS libs/odin-zip libs/x86asm
 
 KAVA_SRC=src/kava/*.odin src/vm/*.odin src/vm/native/*.odin src/shared/*.odin
 
-$(KAVA): BREAKPOINT ODIN_FLAGS libs/odin-zip libs/x86asm $(GENERATED) src/vm/native/initialize.generated.odin $(KAVA_SRC) $(CLASSPARSER_SRC) $(RUNTIME_CLASSES)
+$(KAVA): BREAKPOINT ODIN_FLAGS libs/odin-zip libs/x86asm $(GENERATED) $(GENERATED_NET) src/vm/native/initialize.generated.odin src/vm/net/initialize.generated.odin $(KAVA_SRC) $(CLASSPARSER_SRC) $(RUNTIME_CLASSES)
 	@mkdir -p bin
 ifdef BREAKPOINT
 	odin build src/kava $(COLLECTIONS_FLAGS) $(ODIN_FLAGS) -out:$@ \
@@ -128,9 +134,16 @@ run-tictactoe: $(KAVA) testclasses/tictactoe/Main.class
 .PHONY: debug-tictactoe
 debug-tictactoe: $(KAVA) testclasses/tictactoe/Main.class
 	$(GDB) --args ./$(KAVA) -cp testclasses tictactoe/Main
-
+testclasses/tcpserver/Main.class: testclasses/tcpserver/Main.java
+	javac testclasses/tcpserver/Main.java
+.PHONY: run-tcpserver
+run-tcpserver: $(KAVA) testclasses/tcpserver/Main.class
+	./$(KAVA) -cp testclasses/tcpserver Main 6969
+debug-tcpserver: $(KAVA) testclasses/tcpserver/Main.class
+	gdb --args ./$(KAVA) -cp testclasses/tcpserver Main 6969
 testclasses/test-jni/HelloWorld.class: testclasses/test-jni/HelloWorld.java
 	make -C testclasses/test-jni
+
 .PHONY: run-jni
 run-jni: $(KAVA) testclasses/test-jni/HelloWorld.class testclasses/test-jni/libHelloWorld.so
 	LD_LIBRARY_PATH=$(PWD)/testclasses/test-jni:/lib ./$(KAVA) -cp testclasses/test-jni HelloWorld

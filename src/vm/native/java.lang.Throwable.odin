@@ -8,4 +8,4 @@ fillInStackTrace :: proc "c" () -> rawptr { return nil }
 
 
 /// printStackTrace (Ljava/lang/Throwable$PrintStreamOrWriter;)V replace
-printStackTrace :: proc "c" () { return }
+printStackTrace :: proc "c" (env: ^^kava.JNINativeInterface, ) { return }

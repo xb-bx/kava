@@ -5,11 +5,11 @@ import "core:os"
 
 import "core:io"
 /// initIDs ()V
-FileOutputStream_initIDS :: proc "c" (env: ^kava.JNINativeInterface, ) {}
+FileOutputStream_initIDS :: proc "c" (env: ^^kava.JNINativeInterface, ) {}
 
 
 /// writeBytes ([BIIZ)V
-FileOutputStream_writeBytes :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, bytes: ^kava.ArrayHeader, off: i32, len: i32, append: bool) {
+FileOutputStream_writeBytes :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, bytes: ^kava.ArrayHeader, off: i32, len: i32, append: bool) {
     using kava
     using os
     context = vm.ctx

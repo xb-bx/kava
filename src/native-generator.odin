@@ -8,8 +8,9 @@ import "core:odin/ast"
 import "core:slice"
 import "core:strings"
 import "base:intrinsics"
-generate_native_methods :: proc(needs_generation: string) {
-    pkg, ok := parser.parse_package_from_path("src/vm/native")
+generate_native_methods :: proc(needs_generation: string, package_name: string) {
+    package_path := fmt.aprintf("src/vm/%s", package_name)
+    pkg, ok := parser.parse_package_from_path(package_path)
     if !ok {
         fmt.println("fuck")
     }
@@ -23,7 +24,7 @@ generate_native_methods :: proc(needs_generation: string) {
             fmt.println(classname)
             builder: strings.Builder = {}
             strings.builder_init(&builder)
-            fmt.sbprintln(&builder, "package native")
+            fmt.sbprintf(&builder, "package %s\n", package_name)
             fmt.sbprintln(&builder, "import kava \"kava:vm\"")
             fmt.sbprintf(&builder, "initialize_%s :: proc() {{\n", classname_underscored)
             fmt.sbprintf(&builder,  "    classres := kava.load_class(vm, \"%s\")\n", classname)
@@ -59,7 +60,7 @@ generate_native_methods :: proc(needs_generation: string) {
             res := strings.to_string(builder)
             defer delete(res)
 
-            genpath := fmt.aprintf("src/vm/native/%s.generated.odin", classname_dots)
+            genpath := fmt.aprintf("src/vm/%s/%s.generated.odin", package_name, classname_dots)
             defer delete(genpath)
             handle, err := os.open(genpath, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o640)
             assert(err == nil)
@@ -71,17 +72,17 @@ generate_native_methods :: proc(needs_generation: string) {
 
     }
 }
-initializer :: proc() {
-    pkg, ok := parser.parse_package_from_path("src/vm/native")
+initializer :: proc(package_name: string) {
+    package_path := fmt.aprintf("src/vm/%s", package_name)
+    pkg, ok := parser.parse_package_from_path(package_path)
     if !ok {
         fmt.println("fuck")
     }
     builder: strings.Builder = {}
     strings.builder_init(&builder)
-    fmt.sbprintln(&builder, "package native")
+    fmt.sbprintf(&builder, "package %s\n", package_name)
     fmt.sbprintln(&builder, "import kava \"kava:vm\"")
     fmt.sbprintln(&builder, "vm: ^kava.VM = nil")
-    fmt.sbprintln(&builder, "@export")
     fmt.sbprintln(&builder, "add_initilizers :: proc(vmm: ^kava.VM) {")
     fmt.sbprintln(&builder, "   vm = vmm")
     for filename,_ in pkg.files {
@@ -94,7 +95,8 @@ initializer :: proc() {
     fmt.sbprintln(&builder, "}")
     res := strings.to_string(builder)
     defer delete(res)
-    handle, err := os.open("src/vm/native/initialize.generated.odin", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o640)
+    init_path := fmt.aprintf("src/vm/%s/initialize.generated.odin", package_name)
+    handle, err := os.open(init_path, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o640)
     assert(err == nil)
     defer os.close(handle)
     os.write(handle, slice.bytes_from_ptr(raw_data(res), len(res)))
@@ -102,9 +104,9 @@ initializer :: proc() {
 
 main :: proc() {
     if os.args[1] == "initializer" {
-        initializer()
+        initializer(os.args[2])
     }
     else {
-        generate_native_methods(os.args[1])
+        generate_native_methods(os.args[1], os.args[2])
     }
 }

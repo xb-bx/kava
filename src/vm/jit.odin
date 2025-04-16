@@ -1327,8 +1327,8 @@ jit_div_by_zero_check :: proc(using ctx: ^JittingContext, reg: x86asm.Reg64, pc:
 
 
 
-    mov(assembler, parameter_registers[0], at(rsp))
-    mov(assembler, parameter_registers[1], transmute(int)msg)
+    mov(assembler, parameter_registers[1], at(rsp))
+    mov(assembler, parameter_registers[2], transmute(int)msg)
     mov(assembler, rax, transmute(int)&ctor.jitted_body)
     call(assembler, at(rax))
 
@@ -1596,11 +1596,19 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
 }
 stacktrace := make([dynamic]^StackEntry)
 stack_trace_push :: proc(stack_entry: ^StackEntry) {
+    //for i in 0..<len(stacktrace) {
+        //fmt.print("  ")
+    //}
+    //fmt.printf("%s.%s\n", stack_entry.method.parent.name, stack_entry.method.name)
     append(&stacktrace, stack_entry)
 }
 stack_trace_pop :: proc "c" (vm: ^VM) -> ^StackEntry {
     context = vm.ctx
     res := stacktrace[len(stacktrace) - 1] 
+    //for i in 0..<len(stacktrace) - 1 {
+        //fmt.print("  ")
+    //}
+    //fmt.printf("%s.%s\n", res.method.parent.name, res.method.name)
     ordered_remove(&stacktrace, len(stacktrace) - 1) 
     return res
 }
@@ -1631,7 +1639,7 @@ jit_ensure_clinit_called_body :: proc "c" (vm: ^VM, initializer: ^Method) {
     }
     if !class.class_initializer_called {
         class.class_initializer_called = true
-        (transmute(proc "c" ())initializer.jitted_body)()
+        (transmute(proc "c" (^^JNINativeInterface))initializer.jitted_body)(&vm.jni_env)
     }
 }
 

@@ -13,6 +13,7 @@ import "core:time"
 import "zip:zip"
 import "core:sys/windows"
 import "kava:vm/native"
+import "kava:vm/net"
 import "core:sys/unix"
 import "core:unicode/utf16"
 import kavavm "kava:vm"
@@ -100,6 +101,7 @@ main :: proc() {
     prepare_after_jitted(vm)
     prepare_before_jitted(vm)
     native.add_initilizers(vm)
+    net.add_initilizers(vm)
     for prim in PrimitiveType {
         make_primitive(vm, prim, primitive_names[prim], primitive_sizes[prim])
     }
@@ -125,7 +127,7 @@ main :: proc() {
     stopwatch := time.Stopwatch {}
     classinit := find_method(app.value.(^Class), "<clinit>", "()V")
     if classinit != nil {
-        (transmute(proc "c" ())(classinit.jitted_body))()
+        (transmute(proc "c" (^^JNINativeInterface, ))(classinit.jitted_body))(&vm.jni_env)
     }
 
     mainMethod := find_method(app.value.(^Class), "main", "([Ljava/lang/String;)V")
@@ -146,7 +148,7 @@ main :: proc() {
     stopwatch = time.Stopwatch {}
     time.stopwatch_start(&stopwatch)
     
-    ((transmute(proc "c" (args: ^ArrayHeader))mainMethod.jitted_body))(args_array)
+    ((transmute(proc "c" (env: ^^JNINativeInterface, args: ^ArrayHeader))mainMethod.jitted_body))(&vm.jni_env, args_array)
     time.stopwatch_stop(&stopwatch)
     dur := time.stopwatch_duration(stopwatch)
     fmt.println("Execution took", dur)

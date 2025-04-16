@@ -30,8 +30,8 @@ InternHashTable :: struct {
 InternBucket :: struct {
     strings: [dynamic]^ObjectHeader,
 }
-String_hashCode: proc "c" (this: ^ObjectHeader) -> i32
-String_ctor: proc "c" (this: ^ObjectHeader, other: ^ObjectHeader)
+String_hashCode: proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader) -> i32
+String_ctor: proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader, other: ^ObjectHeader)
 hashOffset := 0
 intern_init :: proc(table: ^InternHashTable) {
     table.buckets = make([]InternBucket, 100)
@@ -42,11 +42,11 @@ intern_init :: proc(table: ^InternHashTable) {
 intern :: proc (internTable: ^InternHashTable, str: ^ObjectHeader) -> ^ObjectHeader {
     if String_hashCode == nil 
     {
-        String_hashCode = transmute(proc "c" (this: ^ObjectHeader) -> i32)find_method(str.class, "hashCode", "()I").jitted_body
-        String_ctor = transmute(proc "c" (this: ^ObjectHeader, other: ^ObjectHeader))find_method(str.class, "<init>", "(Ljava/lang/String;)V").jitted_body
+        String_hashCode = transmute(proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader) -> i32)find_method(str.class, "hashCode", "()I").jitted_body
+        String_ctor = transmute(proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader, other: ^ObjectHeader))find_method(str.class, "<init>", "(Ljava/lang/String;)V").jitted_body
         hashOffset = (int)(find_field(str.class, "hash").offset)
     }
-    buck := &internTable.buckets[abs(int(String_hashCode(str))) % len(internTable.buckets)]
+    buck := &internTable.buckets[abs(int(String_hashCode(&vm.jni_env, str))) % len(internTable.buckets)]
     res := bucket_add_or_get_string(buck, str)
     return res
 }
@@ -83,13 +83,13 @@ bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^
         return 0
     }
 
-    hash := String_hashCode(str)
+    hash := String_hashCode(&vm.jni_env, str)
     found := find_str(bucket.strings, hash, str) 
     if len(bucket.strings) == 0 {
         newstr: ^ObjectHeader = nil
         gc_alloc_object(vm, str.class, &newstr)
-        String_ctor(newstr, str)
-        String_hashCode(newstr)
+        String_ctor(&vm.jni_env, newstr, str)
+        String_hashCode(&vm.jni_env, newstr)
         append(&bucket.strings, newstr)
         return newstr
     }
@@ -97,8 +97,8 @@ bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^
         i := find_index(bucket.strings, hash) 
         newstr: ^ObjectHeader = nil
         gc_alloc_object(vm, str.class, &newstr)
-        String_ctor(newstr, str)
-        String_hashCode(newstr)
+        String_ctor(&vm.jni_env, newstr, str)
+        String_hashCode(&vm.jni_env, newstr)
         inject_at(&bucket.strings, i, newstr)
         return newstr
     }
@@ -890,10 +890,15 @@ print_instruction_with_const :: proc(instr: classparser.Instruction, file: os.Ha
     return 0
 }
 vm_load_library :: proc(vm: ^VM, lib: string) -> bool {
-    library, ok := dynlib.load_library(lib)  
-    if !ok do return false
-    append(&vm.libraries, library)
-    return true
+    switch lib {
+        case "libnet.so":
+            return true
+        case: 
+            library, ok := dynlib.load_library(lib)  
+            if !ok do return false
+            append(&vm.libraries, library)
+            return true
+    }
 }
 
 

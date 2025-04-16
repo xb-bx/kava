@@ -7,13 +7,13 @@ import "core:fmt"
 
 
 /// intern ()Ljava/lang/String;
-String_intern :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+String_intern :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     context = vm.ctx
     res := kava.intern(&vm.internTable, this)
     return res
 }
 /// <init> (Ljava/lang/String;)V replace
-String_ctor :: proc "c" (this: ^kava.ObjectHeader, other: ^kava.ObjectHeader) {
+String_ctor :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, other: ^kava.ObjectHeader) {
     using kava
     hashPtr := (transmute(^i32)get_object_field_ref(this, "hash"))
     valuePtr := (transmute(^^ArrayHeader)get_object_field_ref(this, "value"))
@@ -22,7 +22,7 @@ String_ctor :: proc "c" (this: ^kava.ObjectHeader, other: ^kava.ObjectHeader) {
 }
 
 /// hashCode ()I replace
-String_hashCode :: proc "c" (this: ^kava.ObjectHeader) -> i32 {
+String_hashCode :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> i32 {
     using kava
     context = vm.ctx
     hashPtr := transmute(^i32)get_object_field_ref(this, "hash")

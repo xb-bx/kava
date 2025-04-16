@@ -3,7 +3,7 @@ package native
 import kava "kava:vm"
 
 /// <clinit> ()V replace
-Bits_clinit :: proc "c" () {
+Bits_clinit :: proc "c" (env: ^^kava.JNINativeInterface, ) {
     using kava
     context = vm.ctx
     bitsClass := vm.classes["java/nio/Bits"]

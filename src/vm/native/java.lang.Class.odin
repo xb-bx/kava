@@ -4,7 +4,7 @@ import "core:strings"
 import "core:fmt"
 
 /// getSuperclass ()Ljava/lang/Class; 
-Class_getSuperclass :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Class_getSuperclass :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     this_class := transmute(^Class)get_object_field(this, "handle")
@@ -12,7 +12,7 @@ Class_getSuperclass :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.Obje
     return get_class_object(vm, this_class.super_class)
 }
 /// isAssignableFrom (Ljava/lang/Class;)Z 
-Class_isAssignableFrom :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, other: ^kava.ObjectHeader) -> bool {
+Class_isAssignableFrom :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, other: ^kava.ObjectHeader) -> bool {
     using kava
     context = vm.ctx
     this_class := transmute(^Class)get_object_field(this, "handle")
@@ -21,38 +21,44 @@ Class_isAssignableFrom :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.O
 }
 
 
+/// getName0 ()Ljava/lang/String;
+Class_getName0 :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) {
+    context = (env^).vm.ctx
+    panic("here")
+}
+
 /// registerNatives ()V
-Class_registerNatives :: proc "c" (env: ^kava.JNINativeInterface, ) {}
+Class_registerNatives :: proc "c" (env: ^^kava.JNINativeInterface, ) {}
 
 /// desiredAssertionStatus0 (Ljava/lang/Class;)Z
-Class_desiredAssertionStatus0 :: proc "c" (env: ^kava.JNINativeInterface, ) -> i32 {
+Class_desiredAssertionStatus0 :: proc "c" (env: ^^kava.JNINativeInterface, ) -> i32 {
     return 0
 }
 /// getDeclaringClass0 ()Ljava/lang/Class;
-Class_getDeclaringClass0 :: proc "c" (env: ^kava.JNINativeInterface, ) -> ^kava.ObjectHeader { return nil }
+Class_getDeclaringClass0 :: proc "c" (env: ^^kava.JNINativeInterface, ) -> ^kava.ObjectHeader { return nil }
 
 /// getEnclosingMethod0 ()[Ljava/lang/Object;
-Class_getEnclosingMethod0 :: proc "c" (env: ^kava.JNINativeInterface, ) -> ^kava.ObjectHeader { return nil }
+Class_getEnclosingMethod0 :: proc "c" (env: ^^kava.JNINativeInterface, ) -> ^kava.ObjectHeader { return nil }
 
 /// getClassLoader0 ()Ljava/lang/ClassLoader;
-Class_getClassLoader0 :: proc "c" (env: ^kava.JNINativeInterface, ) -> ^kava.ObjectHeader { return nil }
+Class_getClassLoader0 :: proc "c" (env: ^^kava.JNINativeInterface, ) -> ^kava.ObjectHeader { return nil }
 
 /// isPrimitive ()Z
-Class_isPrimitive :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> bool {
+Class_isPrimitive :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> bool {
     using kava
     context = vm.ctx
     class := transmute(^Class)get_object_field(this, "handle")
     return class.class_type == ClassType.Primitive
 }
 /// isArray ()Z
-Class_isArray :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> bool {
+Class_isArray :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> bool {
     using kava
     context = vm.ctx
     class := transmute(^Class)get_object_field(this, "handle")
     return class.class_type == ClassType.Array
 }
 /// getComponentType ()Ljava/lang/Class;
-Class_getComponentType :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Class_getComponentType :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     class := transmute(^Class)get_object_field(this, "handle")
@@ -64,7 +70,7 @@ Class_getComponentType :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.O
 }
 
 /// getPrimitiveClass (Ljava/lang/String;)Ljava/lang/Class;
-Class_getPrimitiveClass :: proc "c" (env: ^kava.JNINativeInterface, str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Class_getPrimitiveClass :: proc "c" (env: ^^kava.JNINativeInterface, str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     str := javaString_to_string(str)
@@ -76,7 +82,7 @@ Class_getPrimitiveClass :: proc "c" (env: ^kava.JNINativeInterface, str: ^kava.O
     return get_class_object(vm, class) 
 }
 /// forName0 (Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;
-Class_forName :: proc "c" (env: ^kava.JNINativeInterface, name: ^kava.ObjectHeader, initialize: bool, loader: ^kava.ObjectHeader, callerClass: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Class_forName :: proc "c" (env: ^^kava.JNINativeInterface, name: ^kava.ObjectHeader, initialize: bool, loader: ^kava.ObjectHeader, callerClass: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     namestr := javaString_to_string(name)
@@ -98,7 +104,7 @@ Class_forName :: proc "c" (env: ^kava.JNINativeInterface, name: ^kava.ObjectHead
     }
 }
 /// newInstance ()Ljava/lang/Object; replace
-Class_newInstance :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Class_newInstance :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     class := transmute(^Class)get_object_field(this, "handle")
@@ -108,17 +114,17 @@ Class_newInstance :: proc "c" (this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     }
     newobj: ^ObjectHeader = nil
     gc_alloc_object(vm, class, &newobj)
-    (transmute(proc "c"(obj: ^ObjectHeader))find_method(class, "<init>", "()V").jitted_body)(newobj)
+    (transmute(proc "c"(env: ^^JNINativeInterface, obj: ^ObjectHeader))find_method(class, "<init>", "()V").jitted_body)(env, newobj)
     return newobj
     
 }
 /// getDeclaredFields0 (Z)[Ljava/lang/reflect/Field;
-Class_getDeclaredFields0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, publicOnly: bool) -> ^kava.ArrayHeader {
+Class_getDeclaredFields0 :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, publicOnly: bool) -> ^kava.ArrayHeader {
     using kava
     context = vm.ctx
     field_class := vm.classes["java/lang/reflect/Field"]
     field_ctor := kava.find_method(field_class, "<init>", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;IILjava/lang/String;[B)V")
-    ctor_proc := transmute(proc "c" (this: ^kava.ObjectHeader, class: ^kava.ObjectHeader, name: ^kava.ObjectHeader, type: ^kava.ObjectHeader, modifiers: i32, slot: i32, signature: ^kava.ObjectHeader, anotations: ^kava.ArrayHeader))(field_ctor.jitted_body)
+    ctor_proc := transmute(proc "c" (env: ^^JNINativeInterface, this: ^kava.ObjectHeader, class: ^kava.ObjectHeader, name: ^kava.ObjectHeader, type: ^kava.ObjectHeader, modifiers: i32, slot: i32, signature: ^kava.ObjectHeader, anotations: ^kava.ArrayHeader))(field_ctor.jitted_body)
     class := transmute(^Class)get_object_field(this, "handle")
     fields := make([dynamic]^kava.ObjectHeader)
     defer delete(fields)
@@ -136,7 +142,7 @@ Class_getDeclaredFields0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava
             } else {
                 field_type = load_class(vm, field.descriptor).value.(^Class)
             }
-            ctor_proc(field.field_obj, this, name_str, get_class_object(vm, field_type), i32(field.access_flags), 0, nil, nil)
+            ctor_proc(env, field.field_obj, this, name_str, get_class_object(vm, field_type), i32(field.access_flags), 0, nil, nil)
             append(&fields, field.field_obj)
         }
     }

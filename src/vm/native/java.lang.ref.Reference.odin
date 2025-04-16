@@ -1,5 +1,5 @@
 package native
 import kava "kava:vm"
 /// <clinit> ()V replace
-Reference_clinit :: proc "c" () {
+Reference_clinit :: proc "c" (env: ^^kava.JNINativeInterface, ) {
 }

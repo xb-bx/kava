@@ -259,7 +259,7 @@ gc_collect :: proc (gc: ^GC) {
         }
     }
     for obj in objects_to_finalize {
-        (transmute(proc "c" (object: ^ObjectHeader)) (find_method_virtual(obj.class, "finalize", "()V").jitted_body))(obj)
+        (transmute(proc "c" (env: ^^JNINativeInterface, object: ^ObjectHeader)) (find_method_virtual(obj.class, "finalize", "()V").jitted_body))(&vm.jni_env, obj)
         obj.flags ~= ObjectHeaderGCFlags.Finalized
         obj.flags ~= ObjectHeaderGCFlags.Finalizing
     }

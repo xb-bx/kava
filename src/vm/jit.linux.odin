@@ -16,7 +16,7 @@ import "core:slice"
 parameter_registers := [?]x86asm.Reg64 { x86asm.rdi, x86asm.rsi, x86asm.rdx, x86asm.rcx, x86asm.r8, x86asm.r9 }
 jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.Assembler) -> int {
     using x86asm
-    reg_args_a := [?]Reg64{rdi, rsi, rdx, rcx, r8, r9}
+    reg_args_a := [?]Reg64{rsi, rdx, rcx, r8, r9}
     reg_args := reg_args_a[:]
     sub_size:int = 0
     if len(locals) != 0 {
@@ -32,7 +32,7 @@ jit_prepare_locals :: proc(method: ^Method, locals: []i32, assembler: ^x86asm.As
     static := false
     if !hasFlag(method.access_flags, classparser.MethodAccessFlags.Static) { 
         reg_args = reg_args_a[1:]
-        mov(assembler, at(rbp, locals[0]), rdi)
+        mov(assembler, at(rbp, locals[0]), reg_args_a[0])
     } else {
         reg_args = reg_args_a[0:]
         static = true
@@ -95,12 +95,8 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
         mov(assembler, r10, rax)
     }
 
-    registers := []Reg64 {rsi, rdx, rcx, r8, r9}
-    this_reg := rdi
-    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
-        this_reg = rsi
-        registers = []Reg64 {rdx, rcx, r8, r9}
-    }
+    this_reg := rsi
+    registers := []Reg64 {rdx, rcx, r8, r9}
 
     extra_args_size : i32 = 0
     if len(regular) > len(registers) {
@@ -137,9 +133,7 @@ jit_invoke_method :: proc(using ctx: ^JittingContext, target: ^Method, instructi
     stack_count -= args 
     mov(assembler, this_reg, at(rbp, stack_base - 8 * stack_count))
     stack_count -= 1
-    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
-        mov(assembler, rdi, transmute(int)(&vm.jni_env))
-    }
+    mov(assembler, rdi, transmute(int)(&vm.jni_env))
     if virtual {
         call(assembler, at(r10))
     }
@@ -181,26 +175,7 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
     using x86asm
     
     args := count_args(target)
-    registers := []Reg64 {rdi, rsi, rdx, rcx, r8, r9}
-    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
-        registers = []Reg64 {rsi, rdx, rcx, r8, r9}
-    }
-//     if method.name == "<clinit>" {
-//         initializer := find_method(target.parent, "<clinit>", "()V")
-//         if initializer != nil {
-//             already_initialized := create_label(assembler)
-//             mov(assembler, rax, transmute(int)&target.parent.class_initializer_called)
-//             mov(assembler, al, at(rax))
-//             mov(assembler, r10b, u8(0))
-//             cmp(assembler, al, r10b)
-//             jne(assembler, already_initialized)
-//             mov(assembler, rax, transmute(int)initializer)
-//             call(assembler, rax)
-//             set_label(assembler, already_initialized)
-//         }
-//         
-// 
-//     }
+    registers := []Reg64 {rsi, rdx, rcx, r8, r9}
     regular, fp := split_args_into_regular_and_fp(target.args)
     defer delete(regular)
     defer delete(fp)
@@ -238,9 +213,7 @@ jit_invoke_static_impl :: proc(using ctx: ^JittingContext, target: ^Method) {
     }
     stack_count -= args 
     mov(assembler, rax, transmute(int)&target.jitted_body)
-    if hasFlag(target.access_flags, classparser.MethodAccessFlags.Native) {
-        mov(assembler, rdi, transmute(int)(&vm.jni_env))
-    }
+    mov(assembler, rdi, transmute(int)(&vm.jni_env))
     call(assembler, at(rax))
     if extra_args_size != 0 {
         addsx(assembler, rsp, i32(extra_args_size))

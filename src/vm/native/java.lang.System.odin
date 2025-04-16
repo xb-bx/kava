@@ -10,17 +10,17 @@ import "core:time"
 OS_UNIX :: kava.OS_UNIX
 
 /// currentTimeMillis ()J
-System_currentTimeMillis :: proc "c" (env: ^kava.JNINativeInterface, ) -> i64 {
+System_currentTimeMillis :: proc "c" (env: ^^kava.JNINativeInterface, ) -> i64 {
     return i64(time.now()._nsec / 1000_000)
 }
 
 /// identityHashCode (Ljava/lang/Object;)I 
-System_identityHashCode :: proc(env: ^kava.JNINativeInterface, obj: ^kava.ObjectHeader) -> i32 {
+System_identityHashCode :: proc(env: ^^kava.JNINativeInterface, obj: ^kava.ObjectHeader) -> i32 {
     return i32(transmute(int)obj)
 }
 
 /// arraycopy (Ljava/lang/Object;ILjava/lang/Object;II)V
-arraycopy :: proc "c" (env: ^kava.JNINativeInterface, src: ^kava.ArrayHeader, src_pos: i32, dest: ^kava.ArrayHeader, desr_pos: i32, count: i32) {
+arraycopy :: proc "c" (env: ^^kava.JNINativeInterface, src: ^kava.ArrayHeader, src_pos: i32, dest: ^kava.ArrayHeader, desr_pos: i32, count: i32) {
     context = vm.ctx
     using kava
     if src == nil || dest == nil {
@@ -72,13 +72,13 @@ arraycopy :: proc "c" (env: ^kava.JNINativeInterface, src: ^kava.ArrayHeader, sr
 }
 
 /// getProperty (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String; replace
-System_getProperty2 :: proc "c" (str: ^kava.ObjectHeader, def: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
-    res := System_getProperty(str)
+System_getProperty2 :: proc "c" (env: ^^kava.JNINativeInterface, str: ^kava.ObjectHeader, def: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+    res := System_getProperty(env, str)
     if res == nil do return def
     return res
 }
 /// getProperty (Ljava/lang/String;)Ljava/lang/String; replace
-System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+System_getProperty :: proc "c" (env: ^^kava.JNINativeInterface, str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     prop := javaString_to_string(str)
@@ -154,35 +154,35 @@ System_getProperty :: proc "c" (str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
 }
 when OS_UNIX {
     /// registerNatives ()V
-    System_registerNatives :: proc "c" (env: ^kava.JNINativeInterface, ) {
+    System_registerNatives :: proc "c" (env: ^^kava.JNINativeInterface, ) {
         using kava
         context = vm.ctx
         system := vm.classes["java/lang/System"]
         fdclass := load_class(vm, "java/io/FileDescriptor").value.(^Class)  
         fdclass.class_initializer_called = true
-        ctor := transmute(proc "c" (fd: ^ObjectHeader, fdint: i32))find_method(fdclass, "<init>", "(I)V").jitted_body
+        ctor := transmute(proc "c" (env: ^^JNINativeInterface, fd: ^ObjectHeader, fdint: i32))find_method(fdclass, "<init>", "(I)V").jitted_body
         infld := transmute(^^ObjectHeader)&find_field(fdclass, "in").static_data
         outfld := transmute(^^ObjectHeader)&find_field(fdclass, "out").static_data
         errfld := transmute(^^ObjectHeader)&find_field(fdclass, "err").static_data
         gc_alloc_object(vm, fdclass, infld)
-        ctor(infld^, 0)
+        ctor(env, infld^, 0)
         gc_alloc_object(vm, fdclass, outfld)
-        ctor(outfld^, 1)
+        ctor(env, outfld^, 1)
         gc_alloc_object(vm, fdclass, errfld)
-        ctor(errfld^, 2)
+        ctor(env, errfld^, 2)
         fileOutputStream := load_class(vm, "java/io/FileOutputStream").value.(^Class)
         printStream := load_class(vm, "java/io/PrintStream").value.(^Class)
-        fileOutputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileOutputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
-        printStream_init := (transmute(proc "c" (this: ^ObjectHeader, stream: ^ObjectHeader))find_method(printStream, "<init>", "(Ljava/io/OutputStream;)V").jitted_body)
+        fileOutputStream_init := (transmute(proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileOutputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
+        printStream_init := (transmute(proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader, stream: ^ObjectHeader))find_method(printStream, "<init>", "(Ljava/io/OutputStream;)V").jitted_body)
 
         out_printStream_ref := transmute(^^ObjectHeader)&find_field(system, "out").static_data
         gc_alloc_object(vm, printStream, out_printStream_ref)
 
         out_file_stream: ^ObjectHeader = nil
         gc_alloc_object(vm, fileOutputStream, &out_file_stream)
-        fileOutputStream_init(out_file_stream, outfld^)
+        fileOutputStream_init(env, out_file_stream, outfld^)
         
-        printStream_init(out_printStream_ref^, out_file_stream)
+        printStream_init(env, out_printStream_ref^, out_file_stream)
 
 
         err_printStream_ref := transmute(^^ObjectHeader)&find_field(system, "err").static_data
@@ -190,21 +190,21 @@ when OS_UNIX {
 
         err_file_stream: ^ObjectHeader = nil
         gc_alloc_object(vm, fileOutputStream, &err_file_stream)
-        fileOutputStream_init(err_file_stream, errfld^)
+        fileOutputStream_init(env, err_file_stream, errfld^)
         
-        printStream_init(err_printStream_ref^, err_file_stream)
+        printStream_init(env, err_printStream_ref^, err_file_stream)
 
 
         fileInputStream := load_class(vm, "java/io/FileInputStream").value.(^Class)
-        fileInputStream_init := (transmute(proc "c" (this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileInputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
+        fileInputStream_init := (transmute(proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader, fd: ^ObjectHeader))find_method(fileInputStream, "<init>", "(Ljava/io/FileDescriptor;)V").jitted_body)
         in_ref := transmute(^^ObjectHeader)&find_field(system, "in").static_data
         gc_alloc_object(vm, fileInputStream, in_ref)
-        fileInputStream_init(in_ref^, infld^);
+        fileInputStream_init(env, in_ref^, infld^);
 
     }
 }
 /// mapLibraryName (Ljava/lang/String;)Ljava/lang/String; 
-System_mapLibraryName :: proc "c" (env: ^kava.JNINativeInterface, str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+System_mapLibraryName :: proc "c" (env: ^^kava.JNINativeInterface, str: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     context = vm.ctx
     s := kava.javaString_to_string(str)
     defer delete(s)
@@ -215,14 +215,14 @@ System_mapLibraryName :: proc "c" (env: ^kava.JNINativeInterface, str: ^kava.Obj
     return res
 }
 /// loadLibrary (Ljava/lang/String;)V replace
-System_loadLibrary :: proc "c" (str: ^kava.ObjectHeader) {
+System_loadLibrary :: proc "c" (env: ^^kava.JNINativeInterface, str: ^kava.ObjectHeader) {
     context = vm.ctx
     s := kava.javaString_to_string(str)
     defer delete(s)
     lib := fmt.aprintf("lib%s.so", s)
     defer delete(lib)
-    if !kava.vm_load_library(vm, lib) do panic("oopsie")
+    if !kava.vm_load_library(vm, lib) do panic(lib)
 }
 
 /// <clinit> ()V replace
-System_clinit :: proc "c" ()  { System_registerNatives(nil) }
+System_clinit :: proc "c" (env: ^^kava.JNINativeInterface, )  { System_registerNatives(env) }

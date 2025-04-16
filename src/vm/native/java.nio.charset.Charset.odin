@@ -6,7 +6,7 @@ import "core:strings"
 import "core:fmt"
 
 /// defaultCharset ()Ljava/nio/charset/Charset; replace 
-Charset_defaultCharset :: proc "c" () -> ^kava.ObjectHeader {
+Charset_defaultCharset :: proc "c" (env: ^^kava.JNINativeInterface, ) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     charsetClass := vm.classes["java/nio/charset/Charset"]
@@ -18,11 +18,11 @@ Charset_defaultCharset :: proc "c" () -> ^kava.ObjectHeader {
     }
     default := transmute(^^ObjectHeader)&defaultCharsetFld.static_data
     gc_alloc_object(vm, utf8Class, default)
-    init := transmute(proc "c" (thisobj: ^ObjectHeader))(find_method(utf8Class, "<init>", "()V").jitted_body)
+    init := transmute(proc "c" (env: ^^JNINativeInterface, thisobj: ^ObjectHeader))(find_method(utf8Class, "<init>", "()V").jitted_body)
     name: ^ObjectHeader = nil
     gc_alloc_string(vm, "UTF-8", &name)
-    init(default^)
-    (transmute(proc "c" (name: ^ObjectHeader, charset: ^ObjectHeader))(find_method(charsetClass, "cache", "(Ljava/lang/String;Ljava/nio/charset/Charset;)V").jitted_body))(name, default^)
+    init(env, default^)
+    (transmute(proc "c" (env: ^^JNINativeInterface, name: ^ObjectHeader, charset: ^ObjectHeader))(find_method(charsetClass, "cache", "(Ljava/lang/String;Ljava/nio/charset/Charset;)V").jitted_body))(env, name, default^)
     return default^
 }
 

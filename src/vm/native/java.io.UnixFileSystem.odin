@@ -8,7 +8,7 @@ import "core:path/filepath"
 import "core:io"
 
 /// initIDs ()V 
-UnixFileSystem_initIDs :: proc "c" (env: ^kava.JNINativeInterface, ) {
+UnixFileSystem_initIDs :: proc "c" (env: ^^kava.JNINativeInterface, ) {
 }
 BooleanAttributes :: enum i32 {
     Exists = 0x01,
@@ -17,7 +17,7 @@ BooleanAttributes :: enum i32 {
     Hidden = 0x08
 }
 /// canonicalize0 (Ljava/lang/String;)Ljava/lang/String;
-UnixFileSystem_canonicalize0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, path: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+UnixFileSystem_canonicalize0 :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, path: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     path := javaString_to_string(path)
@@ -29,7 +29,7 @@ UnixFileSystem_canonicalize0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^
     return result
 }
 /// list (Ljava/io/File;)[Ljava/lang/String;
-UnixFileSystem_list :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> ^kava.ArrayHeader {
+UnixFileSystem_list :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> ^kava.ArrayHeader {
     using kava
     context = vm.ctx
     pathobj := kava.get_object_field_ref(file, "path")^
@@ -60,7 +60,7 @@ UnixFileSystem_list :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.Obje
     return nil
 }
 /// getBooleanAttributes0 (Ljava/io/File;)I
-UnixFileSystem_getBooleanAttributes0 :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> i32 {
+UnixFileSystem_getBooleanAttributes0 :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> i32 {
     using kava
     context = vm.ctx
     pathobj := kava.get_object_field_ref(file, "path")^
@@ -77,7 +77,7 @@ UnixFileSystem_getBooleanAttributes0 :: proc "c" (env: ^kava.JNINativeInterface,
     return 0
 }
 /// createDirectory (Ljava/io/File;)Z
-UnixFileSystem_createDirectory :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> bool {
+UnixFileSystem_createDirectory :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> bool {
     using kava
     context = vm.ctx
     pathobj := kava.get_object_field_ref(file, "path")^
@@ -88,7 +88,7 @@ UnixFileSystem_createDirectory :: proc "c" (env: ^kava.JNINativeInterface, this:
 }
 
 /// getLength (Ljava/io/File;)J
-UnixFileSystem_getLength :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> i64 {
+UnixFileSystem_getLength :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, file: ^kava.ObjectHeader) -> i64 {
     using kava
     context = vm.ctx
     filename_obj := kava.get_object_field_ref(file, "path")^

@@ -2,7 +2,7 @@ package native
 import kava "kava:vm"
 
 /// registerNatives ()V
-ClassLoader_registerNatives :: proc "c" (env: ^kava.JNINativeInterface, ) {}
+ClassLoader_registerNatives :: proc "c" (env: ^^kava.JNINativeInterface, ) {}
 
 
 

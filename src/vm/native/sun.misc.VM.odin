@@ -2,12 +2,12 @@ package native
 import kava "kava:vm"
 
 /// initialize ()V
-VM_initialize :: proc "c" (env: ^kava.JNINativeInterface, ) {}
+VM_initialize :: proc "c" (env: ^^kava.JNINativeInterface, ) {}
 /// <clinit> ()V replace
-VM_clinit :: proc "c" () {}
+VM_clinit :: proc "c" (env: ^^kava.JNINativeInterface, ) {}
 
 /// getSavedProperty (Ljava/lang/String;)Ljava/lang/String; replace
-VM_getSavedProperty :: proc "c" (prop: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+VM_getSavedProperty :: proc "c" (env: ^^kava.JNINativeInterface, prop: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     context = vm.ctx
     prop_str := kava.javaString_to_string(prop)
     defer delete(prop_str)

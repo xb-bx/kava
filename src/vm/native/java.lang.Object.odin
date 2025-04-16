@@ -4,19 +4,19 @@ import "core:fmt"
 import "core:mem"
 
 /// registerNatives ()V
-Object_registerNatives :: proc "c" (env: ^kava.JNINativeInterface, ) {}
+Object_registerNatives :: proc "c" (env: ^^kava.JNINativeInterface, ) {}
 /// hashCode ()I
-hashCode :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> i32 {
+hashCode :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> i32 {
     return cast(i32)transmute(int)this
 }
 
 /// getClass ()Ljava/lang/Class;
-Object_getClass :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Object_getClass :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     context = vm.ctx
     return kava.get_class_object(vm, this.class)
 }
 /// clone ()Ljava/lang/Object;
-Object_clone :: proc "c" (env: ^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
+Object_clone :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader) -> ^kava.ObjectHeader {
     using kava
     context = vm.ctx
     if this.class.class_type == ClassType.Array {
