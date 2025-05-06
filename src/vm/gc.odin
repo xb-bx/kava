@@ -9,7 +9,7 @@ import "core:time"
 import "core:unicode/utf8"
 
 
-DEFAULT_CHUNK_SIZE :: 1 * 1024 * 1024
+DEFAULT_CHUNK_SIZE :: 1 * 1024 * 1024 
 GC_ALLIGNMENT :: 128
 
 ObjectHeaderGCFlags :: enum int {
@@ -181,22 +181,22 @@ gc_visit_roots :: proc(using vm: ^VM) {
     }
     
 }
-gc_visit_stack :: proc(gc: ^GC) {
-    e: StackEntry = {}
-    
-    for entry in stacktrace {
-        i := entry.rbp - entry.size
-
-        for i < entry.rbp  {
-//             fmt.println("STACK", i, entry.size);
-            gc_visit_ptr(gc, (transmute(^rawptr)i)^) 
-            i += 8
-        }     
+gc_visit_stack :: proc(vm: ^VM) {
+    gc := vm.gc
+    for _, entry in vm.stacktraces {
+        e := entry 
+        for e in entry {
+            i := e.rbp - e.size
+            for i < e.rbp  {
+                gc_visit_ptr(gc, (transmute(^rawptr)i)^) 
+                i += 8
+            }     
+        }
     }
 }
 gc_mark_all_objects :: proc (gc: ^GC) {
     gc_visit_roots(vm)
-    gc_visit_stack(gc)
+    gc_visit_stack(vm)
     for obj in objects_to_finalize {
         gc_visit_obj(gc, obj)
     }
@@ -204,9 +204,9 @@ gc_mark_all_objects :: proc (gc: ^GC) {
 objects_to_finalize : = make([dynamic]^ObjectHeader)
 collection_depth := 0
 gc_collect :: proc (gc: ^GC) {
-     stopwatch := time.Stopwatch {}
-     time.stopwatch_start(&stopwatch)
-     //if true { return }
+    stopwatch := time.Stopwatch {}
+    time.stopwatch_start(&stopwatch)
+    //if true { return }
 
     //defer delete(objects_to_finalize)
     if collection_depth != 0 {

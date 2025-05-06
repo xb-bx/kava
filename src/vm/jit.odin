@@ -13,6 +13,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:dynlib"
+import "core:sync"
 
 ENABLE_GDB_DEBUGGING :: #config(ENABLE_GDB_DEBUGGING, true)
 BREAKPOINT_METHOD_NAME :: #config(BREAKPOINT_METHOD_NAME, "")
@@ -1521,6 +1522,7 @@ jit_resolve_virtual :: proc "c" (vm: ^VM, object: ^ObjectHeader, target: ^Method
         if class == nil {
             if hasFlag(target.parent.access_flags, ClassAccessFlags.Interface) {
                 if hasFlag(target.access_flags, MethodAccessFlags.Abstract) {
+                    fmt.println(target.name, target.parent.name)
                     throw_exception_string(vm, "java/lang/AbstractMethodError", "")
                 }   
                 return &target.jitted_body
@@ -1589,36 +1591,27 @@ jit_method_prolog :: proc(method: ^Method, cb: ^CodeBlock, assembler: ^x86asm.As
     mov(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rbp)
     movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, size))), i32(stack_size + size_of(StackEntry)))
     mov(assembler, rax, transmute(int)stack_trace_push)
-    mov(assembler, rdi, rbp)
-    subsx(assembler, rdi, i32(32))
+    mov(assembler, rdi, transmute(int)vm)
+    mov(assembler, rsi, rbp)
+    subsx(assembler, rsi, i32(size_of(StackEntry)))
     call(assembler, rax)
     return indices
 }
-stacktrace := make([dynamic]^StackEntry)
-stack_trace_push :: proc(stack_entry: ^StackEntry) {
-    //for i in 0..<len(stacktrace) {
-        //fmt.print("  ")
-    //}
-    //fmt.printf("%s.%s\n", stack_entry.method.parent.name, stack_entry.method.name)
-    append(&stacktrace, stack_entry)
-}
-stack_trace_pop :: proc "c" (vm: ^VM) -> ^StackEntry {
+stack_trace_push :: proc "c" (vm: ^VM, stack_entry: ^StackEntry) {
     context = vm.ctx
-    res := stacktrace[len(stacktrace) - 1] 
-    //for i in 0..<len(stacktrace) - 1 {
-        //fmt.print("  ")
-    //}
-    //fmt.printf("%s.%s\n", res.method.parent.name, res.method.name)
-    ordered_remove(&stacktrace, len(stacktrace) - 1) 
-    return res
+    append(&vm.stacktraces[current_tid], stack_entry)
+}
+stack_trace_pop :: proc "c" (vm: ^VM) {
+    context = vm.ctx
+    stacktrace := &vm.stacktraces[current_tid]
+    ordered_remove(stacktrace, len(stacktrace) - 1)
 }
 print_stack_trace :: proc() {
-    i := len(stacktrace) - 1
-    for i >= 0 {
-        method := stacktrace[i].method
-        pc := stacktrace[i].pc
+    stacktrace := vm.stacktraces[current_tid]
+    for entry in stacktrace {
+        method := entry.method
+        pc := entry.pc
         fmt.printf("at %s.%s:%s @ %i\n", method.parent.name, method.name, method.descriptor, pc)
-        i -= 1
     }
 }
 StackEntry :: struct {

@@ -105,6 +105,8 @@ bucket_add_or_get_string :: proc(bucket: ^InternBucket, str: ^ObjectHeader) -> ^
     return found
 }
 
+@(thread_local)
+current_tid: int
 VM :: struct {
     classpaths: []string,
     classes: map[string]^Class,
@@ -119,6 +121,7 @@ VM :: struct {
     exe_allocator: ExeAllocator,
     internTable: InternHashTable,
     jni_env: ^JNINativeInterface,
+    stacktraces: map[int][dynamic]^StackEntry,
 }
 array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {

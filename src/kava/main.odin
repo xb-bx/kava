@@ -16,6 +16,7 @@ import "kava:vm/native"
 import "kava:vm/net"
 import "core:sys/unix"
 import "core:unicode/utf16"
+import "core:sync"
 import kavavm "kava:vm"
 
 OS_UNIX :: kavavm.OS_UNIX
@@ -94,7 +95,9 @@ main :: proc() {
         classobj_to_class_map = make(map[^ObjectHeader]^Class),
         native_intitializers = make(map[string]proc()),
         exe_allocator = {},
+        stacktraces = make(map[int][dynamic]^StackEntry),
     })
+    vm.stacktraces[current_tid] = nil
     jni_init(vm)
     intern_init(&vm.internTable)
     exealloc_init(&vm.exe_allocator)

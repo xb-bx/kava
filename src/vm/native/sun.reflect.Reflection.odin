@@ -4,7 +4,8 @@ import kava "kava:vm"
 
 Reflection_getCallerClass :: proc "c" () -> ^kava.ObjectHeader {
     context = vm.ctx
-    entry := kava.stacktrace[len(kava.stacktrace) - 2]
+    stacktrace := vm.stacktraces[kava.current_tid]
+    entry := stacktrace[len(stacktrace) - 2]
     return kava.get_class_object(vm, entry.method.parent)
 }
 /// getClassAccessFlags (Ljava/lang/Class;)I

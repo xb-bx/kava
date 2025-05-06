@@ -151,6 +151,11 @@ run-jni: $(KAVA) testclasses/test-jni/HelloWorld.class testclasses/test-jni/libH
 debug-jni: $(KAVA) testclasses/test-jni/HelloWorld.class testclasses/test-jni/libHelloWorld.so
 	LD_LIBRARY_PATH=$(PWD)/testclasses/test-jni:/lib gdb --args ./$(KAVA) -cp testclasses/test-jni HelloWorld
 
-
+.PHONY: run-jasic
+run-jasic: $(KAVA) 
+	$(KAVA) -cp testclasses/jasic/ com/stuffwithstuff/Jasic testclasses/jasic/sample/mandel.jas
+.PHONY: debug-jasic
+debug-jasic: $(KAVA) 
+	gdb --args $(KAVA) -cp testclasses/jasic/ com/stuffwithstuff/Jasic testclasses/jasic/sample/mandel.jas
 
 
