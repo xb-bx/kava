@@ -1,5 +1,6 @@
 package vm
 import "core:mem"
+import "core:sync"
 import "core:unicode/utf16"
 import "core:slice"
 import "core:fmt"
@@ -22,6 +23,7 @@ ObjectHeader :: struct {
     class: ^Class,
     size: int,
     flags: ObjectHeaderGCFlags,
+    monitor: Monitor,
 }
 ArrayHeader :: struct {
     obj: ObjectHeader,
@@ -50,6 +52,7 @@ gc_total_memory :: proc(using gc: ^GC) -> i64 {
     }
     return sum
 }
+@(private="file")
 gc_find_freeplace :: proc(using gc: ^GC, size: int) -> Maybe(FreePlace) {
     for i in 0..<len(gc.free_places) {
         place := &gc.free_places[i]
@@ -77,6 +80,7 @@ gc_init :: proc(using gc: ^GC) {
 
     gc_new_chunk(gc)
 }
+@(private="file")
 gc_new_chunk :: proc(using gc: ^GC, size: int = DEFAULT_CHUNK_SIZE) {
     data, err := mem.alloc(size, GC_ALLIGNMENT)
     if err != .None {
@@ -103,6 +107,7 @@ gc_add_field_roots :: proc(gc: ^GC, class: ^Class) {
         append(&gc.roots, &fld.field_obj)
     }
 }
+@(private="file")
 gc_is_ptr_inbounds_of :: proc(chunk: ^Chunk, ptr: rawptr, alignment := GC_ALLIGNMENT) -> bool {
     start := transmute(int)chunk.data 
     end := start + chunk.size
@@ -115,6 +120,7 @@ gc_is_ptr_inbounds_of :: proc(chunk: ^Chunk, ptr: rawptr, alignment := GC_ALLIGN
 gc_is_alloced_by_gc :: proc(gc: ^GC, ptr: rawptr) -> bool {
     return gc_chunk_of_pointer(gc, ptr) != nil
 }
+@(private="file")
 gc_chunk_of_pointer :: proc(gc: ^GC, ptr: rawptr) -> ^Chunk {
     for chunk in gc.chunks {
         if(gc_is_ptr_inbounds_of(chunk, ptr)) {
@@ -123,6 +129,7 @@ gc_chunk_of_pointer :: proc(gc: ^GC, ptr: rawptr) -> ^Chunk {
     }
     return nil
 }
+@(private="file")
 gc_visit_obj :: proc(gc: ^GC, obj: ^ObjectHeader, class: ^Class = nil) {
     if hasAnyFlags(obj.flags, ObjectHeaderGCFlags.Marked, ObjectHeaderGCFlags.Finalizing) && class == nil { return }
     obj.flags |= ObjectHeaderGCFlags.Marked
@@ -155,6 +162,7 @@ gc_visit_obj :: proc(gc: ^GC, obj: ^ObjectHeader, class: ^Class = nil) {
         }
     }
 }
+@(private="file")
 gc_visit_ptr :: proc(gc: ^GC, root: rawptr) {
     chunk := gc_chunk_of_pointer(gc, root) 
     if chunk == nil {
@@ -165,6 +173,7 @@ gc_visit_ptr :: proc(gc: ^GC, root: rawptr) {
 //     fmt.println("success visit ptr", objheader.class.name)
     gc_visit_obj(gc, objheader)
 }
+@(private="file")
 gc_visit_roots :: proc(using vm: ^VM) {
     for root in gc.roots {
         gc_visit_ptr(gc, transmute(rawptr)root^)
@@ -194,6 +203,7 @@ gc_visit_stack :: proc(vm: ^VM) {
         }
     }
 }
+@(private="file")
 gc_mark_all_objects :: proc (gc: ^GC) {
     gc_visit_roots(vm)
     gc_visit_stack(vm)
@@ -203,6 +213,7 @@ gc_mark_all_objects :: proc (gc: ^GC) {
 }
 objects_to_finalize : = make([dynamic]^ObjectHeader)
 collection_depth := 0
+@(private="file")
 gc_collect :: proc (gc: ^GC) {
     stopwatch := time.Stopwatch {}
     time.stopwatch_start(&stopwatch)
@@ -274,6 +285,8 @@ align_size :: proc (size: $T, alignment := GC_ALLIGNMENT) -> T {
 }
 gc_alloc_object :: proc "c" (vm: ^VM, class: ^Class, output: ^^ObjectHeader, size: i64 = -1) {
     context = vm.ctx
+    monitor_enter(vm, &vm.monitor)
+    defer monitor_exit(vm, &vm.monitor)
     objsize := align_size(size <= -1 ? class.size : int(size))
     objplace := gc_find_freeplace(vm.gc, objsize)
     if objplace == nil {

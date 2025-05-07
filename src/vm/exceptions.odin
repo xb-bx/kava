@@ -45,18 +45,17 @@ throw_exception_string :: proc "c" (vm: ^VM, exception_name: string, message: st
 } 
 throw_impl :: proc "c" (vm: ^VM, exc: ^ObjectHeader, old_rbp: ^int, size: ^int) -> int {
     context = vm.ctx
-    stacktrace := &vm.stacktraces[current_tid]
-    i := len(stacktrace) - 1
+    i := len(stack_trace) - 1
     items_to_remove := 0
     for i >= 0 {
-        entry := stacktrace[i]
+        entry := stack_trace[i]
         table := entry.method.exception_table
         for exception in table {
         if exception.exception == exc.class || is_subtype_of(exc.class, exception.exception) {
                 if entry.pc >= exception.start && entry.pc <= exception.end {
                     if items_to_remove > 0 {
-                        start := len(stacktrace) - items_to_remove
-                        remove_range(stacktrace, start, start + items_to_remove)
+                        start := len(stack_trace) - items_to_remove
+                        remove_range(stack_trace, start, start + items_to_remove)
                     }
                     old_rbp^ = entry.rbp
                     size^ = entry.size

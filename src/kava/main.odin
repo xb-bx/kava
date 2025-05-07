@@ -97,7 +97,9 @@ main :: proc() {
         exe_allocator = {},
         stacktraces = make(map[int][dynamic]^StackEntry),
     })
+    kavavm.current_tid = sync.current_thread_id()
     vm.stacktraces[current_tid] = nil
+    stack_trace = &vm.stacktraces[current_tid]
     jni_init(vm)
     intern_init(&vm.internTable)
     exealloc_init(&vm.exe_allocator)
@@ -111,6 +113,7 @@ main :: proc() {
     _ = load_class(vm , "java/lang/String")
     _ = load_class(vm , "java/lang/Class")
     app := load_class(vm, application)
+    init_threads(vm)
 
 
     if app.is_err {
@@ -155,6 +158,9 @@ main :: proc() {
     time.stopwatch_stop(&stopwatch)
     dur := time.stopwatch_duration(stopwatch)
     fmt.println("Execution took", dur)
+    //for true {
+
+    //}
 }
 
 

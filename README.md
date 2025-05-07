@@ -7,7 +7,7 @@ TODO:
 - [ ] JIT(WIP ~50% done)
 - [ ] JNI
 - [X] GC
-- [ ] Multithreading
+- [X] Multithreading
 
 Goals:
 - [ ] Run Minecraft

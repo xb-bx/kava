@@ -61,6 +61,7 @@ Class :: struct {
     class_initializer_called: bool,
     is_finalizable: bool,
     strings: map[u16]^ObjectHeader,
+    monitor: Monitor,
 }
 ExceptionInfo :: struct {
     start: int,

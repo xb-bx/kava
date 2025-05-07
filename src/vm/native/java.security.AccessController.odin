@@ -17,3 +17,7 @@ AccessController_doPriviliged :: proc "c" (env: ^^kava.JNINativeInterface, actio
     run := transmute(proc "c" (env: ^^JNINativeInterface, this: ^ObjectHeader) -> ^ObjectHeader)find_method_virtual(action.class, "run", "()Ljava/lang/Object;").jitted_body 
     run(env, action)
 }
+/// getStackAccessControlContext ()Ljava/security/AccessControlContext;
+AccessController_getStackAccessControlContext :: proc "c" (env: ^^kava.JNINativeInterface) -> ^kava.ObjectHeader {
+    return nil
+}

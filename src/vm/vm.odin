@@ -15,6 +15,7 @@ import "core:sys/windows"
 import "x86asm:x86asm"
 import "core:unicode/utf16"
 import "core:dynlib"
+import "core:sync"
 when   ODIN_OS == .Linux \
     || ODIN_OS == .FreeBSD \ 
     || ODIN_OS == .NetBSD \
@@ -122,6 +123,7 @@ VM :: struct {
     internTable: InternHashTable,
     jni_env: ^JNINativeInterface,
     stacktraces: map[int][dynamic]^StackEntry,
+    monitor: Monitor,
 }
 array_type_primitives := [?]PrimitiveType { PrimitiveType.Boolean, PrimitiveType.Char, PrimitiveType.Float, PrimitiveType.Double, PrimitiveType.Byte, PrimitiveType.Short, PrimitiveType.Int, PrimitiveType.Long }
 primitive_names: map[PrimitiveType]string = {
@@ -180,140 +182,7 @@ javaString_to_string :: proc(str: ^ObjectHeader) -> string {
     return strings.clone_from_bytes(utf8_str[:n])
     
 }
-load_lambda_class :: proc(vm: ^VM, target: ^Method, interface: ^Class, ifacemethod: ^Method, closured: []^Class) -> ^Class {
-    using classparser
-    using x86asm
-    name := fmt.aprintf("%s$%s",target.parent.name, target.name)
-    lambdaclass, ok := vm.lambdaclasses[name]
-    if ok {
-        delete(name)
-        return lambdaclass
-    }
-    lambdaclass = new(Class)
-    lambdaclass.name = name
-    lambdaclass.access_flags = ClassAccessFlags.Public | ClassAccessFlags.Final | ClassAccessFlags.Interface
-    lambdaclass.super_class = vm.object
-    lambdaclass.class_type = ClassType.Class
-    lambdaclass.size_without_header = len(closured) * 8
-    lambdaclass.size = lambdaclass.size_without_header + size_of(ObjectHeader)
-    lambdaclass.interfaces = make([]^Class, 1)
-    lambdaclass.interfaces[0] = interface
-    lambdaclass.fields = make([]Field, len(closured))
-    lambdaclass.instance_fields = make([]^Field, len(closured))
-    offset := i32(size_of(ObjectHeader))
-    for closurefield, i in closured {
-        lambdaclass.fields[i] = Field { offset = offset, name = fmt.aprintf("closure_%1", i), type = closurefield, access_flags = MemberAccessFlags.Private }
-        lambdaclass.instance_fields[i] = &lambdaclass.fields[i]
-        offset += 8
-    }
-    lambdaclass.methods = make([]Method, 1)
-    lambdaclass.class_initializer_called = true
-    targetmethod := Method {} 
-    targetmethod.name = ifacemethod.name
-    targetmethod.descriptor = ifacemethod.descriptor
-    targetmethod.access_flags = MethodAccessFlags.Public | MethodAccessFlags.Final | MethodAccessFlags.Native
-    targetmethod.ret_type = ifacemethod.ret_type
-    targetmethod.args = ifacemethod.args
-    targetmethod.parent = lambdaclass
-    lambdaclass.methods[0] = targetmethod
-    assembler := Assembler{}
-    
-    init_asm(&assembler, false)
-//     int3(&assembler)
-    push(&assembler, rbp)
-    mov(&assembler, rbp, rsp)
-    subsx(&assembler, rsp, size_of(StackEntry))
-
-    locals := make([]i32, len(targetmethod.args) + 1)
-    defer delete(locals)
-    argi := 0
-    offset = -8 - size_of(StackEntry)
-    locals[0] = offset
-    offset -= 8
-    locali := 1
-    for argi < len(targetmethod.args) {
-        arg := targetmethod.args[argi]
-        if is_long_or_double(arg) {
-            argi += 1
-        } 
-        argi += 1
-        locals[locali] = offset
-        offset -= 8
-        locali += 1
-    }
-    lambdaclass.methods[0].code = CodeAttribute { max_stack = u16(len(targetmethod.args) + len(closured)) + 1 } 
-    
-    jit_prepare_locals(&lambdaclass.methods[0], locals, &assembler)
-    
-    
-    mov(&assembler, rax, transmute(int)&lambdaclass.methods[0])
-    mov(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, method))), rax)
-    movsx(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(0))
-    mov(&assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, rbp))), rbp)
-    mov(&assembler, rax, transmute(int)stack_trace_push)
-    mov(&assembler, rdi, rbp)
-    subsx(&assembler, rdi, i32(32))
-    call(&assembler, rax)
-
-    ctx := JittingContext {}
-    ctx.vm = vm
-    ctx.method = &lambdaclass.methods[0]
-    ctx.assembler = &assembler
-    ctx.stack_base = offset
-    ctx.stack_count = 0
-
-    argi = 0
-    locali = 1
-    if(!hasFlag(target.access_flags, MethodAccessFlags.Static)) {
-        mov(&assembler, rax, at(rbp, locals[0]))
-        ctx.stack_count += 1
-        mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
-    }
-    for instance_field in lambdaclass.instance_fields {
-        ctx.stack_count += 1
-        mov(&assembler, rax, at(rbp, locals[0]))
-        mov(&assembler, rax, at(rax, instance_field.offset))
-        mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
-    }
-    for argi < len(targetmethod.args) {
-        arg := targetmethod.args[argi]
-        if is_long_or_double(arg) {
-            argi += 1
-        } 
-        argi += 1
-        ctx.stack_count += 1
-        mov(&assembler, rax, at(rbp, locals[locali])) 
-        mov(&assembler, at(rbp, ctx.stack_base - 8 * ctx.stack_count), rax)
-        locali += 1
-    }
-    if(hasFlag(target.access_flags, MethodAccessFlags.Static)) {
-        jit_invoke_static_impl(&ctx, target)
-    }
-    else {
-        jit_invoke_method(&ctx, target, {}, false)
-    }
-    
-    mov(&assembler, rax, transmute(int)stack_trace_pop)
-    mov(&assembler, parameter_registers[0], transmute(int)vm)
-    call(&assembler, rax)
-    if ctx.stack_count != 0 {
-        mov(&assembler, rax, at(rbp, ctx.stack_base - 8 * ctx.stack_count))
-    } 
-    mov(&assembler, rsp, rbp)
-    pop(&assembler, rbp)
-    ret(&assembler)
-    
-    lambdaclass.methods[0].jitted_body = alloc_executable(len(assembler.bytes))
-    for b, i in assembler.bytes {
-        lambdaclass.methods[0].jitted_body[i] = b
-    }
-
-
-
-    vm.lambdaclasses[lambdaclass.name] = lambdaclass    
-    return lambdaclass
-
-}   
+   
 make_array_type :: proc(vm: ^VM, type: ^Class) -> ^Class {
     parts := [?]string {"[", type.name}
     if type.class_type == ClassType.Primitive {
@@ -325,6 +194,9 @@ make_array_type :: proc(vm: ^VM, type: ^Class) -> ^Class {
         return class
     }
     typ := new(Class) 
+            typ.monitor.count = 0
+            typ.monitor.tid = 0
+            typ.monitor.mutex = {}
     typ.name = name
     typ.class_type = ClassType.Array
     typ.underlaying = type
@@ -339,6 +211,9 @@ make_primitive :: proc(vm: ^VM, primitive: PrimitiveType, name: string, size: in
         return class
     }
     type := new(Class)
+            type.monitor.count = 0
+            type.monitor.tid = 0
+            type.monitor.mutex = {}
     type.class_type = ClassType.Primitive
     type.name = name
     type.primitive = primitive
@@ -373,6 +248,9 @@ find_method_by_name_and_descriptor :: proc(class: ^Class, name: string, descript
     return nil
 }
 replace_body :: proc(vm: ^VM, method: ^Method, procptr: rawptr) {
+
+    monitor_enter(vm, &vm.monitor)
+    defer monitor_exit(vm, &vm.monitor)
     using x86asm
     assembler := Assembler {}
     init_asm(&assembler)
@@ -390,6 +268,8 @@ replace_body :: proc(vm: ^VM, method: ^Method, procptr: rawptr) {
 load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string) {
     using classparser
     using shared 
+    monitor_enter(vm, &vm.monitor)
+    defer monitor_exit(vm, &vm.monitor)
     if cl, is_found := vm.classes[class_name]; is_found {
         return Ok(string, cl)
     } 
@@ -438,6 +318,9 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 return Err(^Class, fmt.aprintf("Could not find class %s", class_name))
             }
             class := new(Class)
+            class.monitor.count = 0
+            class.monitor.tid = 0
+            class.monitor.mutex = {}
             class.strings = make(map[u16]^ObjectHeader)
             class.class_file = classfile
             class.access_flags = classfile.access_flags
@@ -893,6 +776,8 @@ print_instruction_with_const :: proc(instr: classparser.Instruction, file: os.Ha
     return 0
 }
 vm_load_library :: proc(vm: ^VM, lib: string) -> bool {
+    monitor_enter(vm, &vm.monitor)
+    defer monitor_exit(vm, &vm.monitor)
     switch lib {
         case "libnet.so":
             return true

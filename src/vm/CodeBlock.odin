@@ -907,7 +907,7 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
                 }
                 if !is_stacktype_array_of(array, value) {
-                    return verification_error("Invalid bytecode. Expected array of chars", this_method, instr)
+                    return verification_error("Invalid bytecode. Expected array of floats", this_method, instr)
                 }
             case .dastore:
                 if stack.count < 3 {
@@ -923,7 +923,23 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
                 }
                 if !is_stacktype_array_of(array, value) {
-                    return verification_error("Invalid bytecode. Expected array of chars", this_method, instr)
+                    return verification_error("Invalid bytecode. Expected array of doubles", this_method, instr)
+                }
+            case .lastore:
+                if stack.count < 3 {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                value := stack_pop_class(stack)
+                index := stack_pop_class(stack)
+                array := stack_pop(stack)
+                if value != vm.classes["long"] {
+                    return verification_error("Invalid bytecode. value must be double", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Index must be integer", this_method, instr)
+                }
+                if !is_stacktype_array_of(array, value) {
+                    return verification_error("Invalid bytecode. Expected array of longs", this_method, instr)
                 }
             case ._return:
                 if this_method.ret_type != vm.classes["void"] {
@@ -989,78 +1005,6 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Wrong exception type", this_method, instr)
                 }
                 canEscape = false
-            case .invokedynamic:
-                index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
-                invokedynamicinfo := resolve_const(InvokeDynamicInfo, this_method.parent.class_file, index)
-                if invokedynamicinfo == nil {
-                    return verification_error("Invalid bytecode0", this_method, instr)
-                }
-                bootstrap_method := this_method.parent.class_file.bootstrap_methods[invokedynamicinfo.(InvokeDynamicInfo).bootstrap_method_attr_index]
-                assert(len(bootstrap_method.bootstrap_arguments) == 3)
-                handle := this_method.parent.class_file.constant_pool[bootstrap_method.bootstrap_arguments[1] - 1].(classparser.MethodHandleInfo)
-//                 if handle.reference_kind != BytecodeBehaivour.REF_invokeStatic {
-//                     fmt.println(handle.reference_kind)
-//                     fmt.println(this_method.parent.class_file.constant_pool[handle.reference_index - 1])
-//                     md := get_interfacemethodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
-//                     fmt.println(md.value.(^Method).name)
-//                     print_flags(md.value.(^Method).access_flags)
-//                     return verification_error("Unsupported", this_method, instr)
-//                 }
-                methodres := get_methodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
-                method : ^Method = nil
-                if methodres.is_err {
-                    imethodres := get_interfacemethodrefconst_method(vm, this_method.parent.class_file, int(handle.reference_index))
-                    if imethodres.is_err {
-                        return verification_error(imethodres.error.(string), this_method, instr)
-                    }
-                    method = imethodres.value.(^Method)
-
-                }
-                else {
-                    method = methodres.value.(^Method)
-                }
-                name_and_type := resolve_name_and_type(this_method.parent.class_file, invokedynamicinfo.(InvokeDynamicInfo).name_and_type_index)
-                if name_and_type == nil {
-                    return verification_error("Invalid bytecode1", this_method, instr)
-                }
-                type := resolve_utf8(this_method.parent.class_file, name_and_type.(NameAndTypeInfo).descriptor_index)
-                typename := type.(string)
-                index_of_closing := strings.index_any(typename, ")")
-                typename = strings.cut(typename, index_of_closing + 1)
-//                 defer delete(typename)
-                typeres := load_class(vm, typename)
-                if typeres.is_err {
-                    return verification_error(typeres.error.(string), this_method, instr)
-                }
-                invoketype := typeres.value.(^Class)
-                target: ^Method = nil
-                for &method in invoketype.methods {
-                    if !hasFlag(method.access_flags, MethodAccessFlags.Static) && hasFlag(method.access_flags, MethodAccessFlags.Abstract) {
-                        target = &method 
-                        break
-                    }
-                }
-                if target == nil {
-                    return verification_error("Invalid bytecode2", this_method, instr)
-                }
-                closured :=  len(method.args) - len(target.args)
-                if stack.count < closured {
-                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
-                }
-                closure := make([]^Class, closured)
-//                 defer delete(closure)
-                i := closured - 1
-                for i >= 0 {
-                    t := stack_pop_class(stack)
-                    assert(t != nil)
-                    closure[i] = t
-                    i -= 1
-                }
-                if handle.reference_kind == BytecodeBehaivour.REF_invokeSpecial{
-                    assert(stack_pop(stack) != nil)
-                }
-                lambdaclass := load_lambda_class(vm, method, invoketype, target, closure)
-                assert(stack_push(stack, lambdaclass))
             case .invokestatic:
                 index := instr.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op   
                 methodres := get_methodrefconst_method(vm, this_method.parent.class_file, index)
@@ -1320,6 +1264,22 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     stack_push(stack, t2.class, t2.is_null)
                     stack_push(stack, t1.class, t1.is_null)
                 }
+            case .laload:
+                index := stack_pop_class(stack)
+                if index == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Expected integer on stack", this_method, instr)
+                }
+                arr := stack_pop(stack)
+                if arr == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !is_stacktype_array_of(arr, vm.classes["long"]) {
+                    return verification_error("Invalid bytecode. Expected array of doubles", this_method, instr)
+                }
+                stack_push(stack, arr.is_null ? nil : arr.class.underlaying, arr.is_null)
             case .daload:
                 index := stack_pop_class(stack)
                 if index == nil {
