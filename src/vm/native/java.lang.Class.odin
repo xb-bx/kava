@@ -154,3 +154,15 @@ Class_getDeclaredFields0 :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kav
     }
     return fields_array
 }
+/// isInstance (Ljava/lang/Object;)Z
+Class_isInstance :: proc "c"(env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader, obj: ^kava.ObjectHeader) -> bool {
+    using kava
+    context = (env^).vm.ctx
+    class := transmute(^Class)get_object_field(this, "handle")
+    if obj.class == class {
+        return true
+    } else {
+        return kava.is_subtype_of(obj.class, class)
+    }
+    return false
+}

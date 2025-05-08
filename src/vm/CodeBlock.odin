@@ -1330,6 +1330,24 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                 if !stack_push(stack, vm.classes["int"]) {
                     return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
                 }
+            case .faload:
+                index := stack_pop_class(stack)
+                if index == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !type_is_integer(index) {
+                    return verification_error("Invalid bytecode. Expected integer on stack", this_method, instr)
+                }
+                arr := stack_pop(stack)
+                if arr == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if !is_stacktype_array_of(arr, vm.classes["float"]) {
+                    return verification_error("Invalid bytecode. Expected array of floats", this_method, instr)
+                }
+                if !stack_push(stack, vm.classes["float"]) {
+                    return verification_error("Invalid bytecode. Exceeded max_stack", this_method, instr)
+                }
             case .baload:
                 index := stack_pop_class(stack)
                 if index == nil {
@@ -1482,6 +1500,15 @@ calculate_stack :: proc(vm: ^VM, cb: ^CodeBlock, cblocks: []CodeBlock, this_meth
                     return verification_error("Invalid bytecode. Expected double value", this_method, instr)
                 }
                 stack_push(stack, vm.classes["int"])
+            case .d2f:
+                t := stack_pop_class(stack)
+                if t == nil {
+                    return verification_error("Invalid bytecode. Not enough items on stack", this_method, instr)
+                }
+                if t != vm.classes["double"] {
+                    return verification_error("Invalid bytecode. Expected double value", this_method, instr)
+                }
+                stack_push(stack, vm.classes["float"])
             case .d2l:
                 t := stack_pop_class(stack)
                 if t == nil {

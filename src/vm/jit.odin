@@ -217,6 +217,38 @@ jit_method :: proc(_vm: ^VM, method: ^Method, codeblocks: []CodeBlock) -> int {
         body[i] = b
     }
     method.jitted_body = body
+    when ENABLE_GDB_DEBUGGING {
+        for i in 0..<len(jit_context.line_mapping) {
+            jit_context.line_mapping[i].pc += transmute(int)body
+        }
+        jit_context.line_mapping[0].pc = transmute(int)body
+        symbol := new(shared.Symbol)
+        defer free(symbol)
+        ctx := context
+        symbol.ctx = ctx
+        symbol.file = strings.clone_to_cstring(file)
+        defer delete(symbol.file)
+        symbol.file_len = len(symbol.file)
+        symbol.function = strings.clone_to_cstring(method.name)
+        defer delete(symbol.function)
+        symbol.function_len = len(symbol.function)
+        symbol.line_mapping = slice.as_ptr(jit_context.line_mapping[:])
+        symbol.line_mapping_len = len(jit_context.line_mapping)
+        symbol.start = transmute(int)body
+        symbol.end = symbol.start + len(assembler.bytes)
+        entry := new(JitCodeEntry)
+        defer free (entry)
+
+        entry.next_entry = nil
+        entry.prev_entry = nil
+        entry.symfile = transmute([^]u8)symbol
+        entry.size = size_of(shared.Symbol)
+        __jit_debug_descriptor.relevant_entry = entry
+        __jit_debug_descriptor.first_entry = entry
+        __jit_debug_descriptor.action_flags = 1
+        __jit_debug_register_code()
+
+    }
     return len(assembler.bytes)
     
 }
@@ -317,6 +349,9 @@ jit_array_store :: proc(using ctx: ^JittingContext, instruction: classparser.Ins
             mov(assembler, at(rax, r10, size_of(ArrayHeader), 8), r9)
     }
 }
+@export
+@(link_name="jit_br")
+jit_br: i32 = 0
 jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     using classparser
     using x86asm 
@@ -330,6 +365,13 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         // push exception object onto the stack
         mov(assembler, at(rbp, stack_base - 8 * stack_count), rdi)
     }
+    nobr := x86asm.create_label(assembler)
+    mov(assembler, rax, transmute(int)&jit_br)
+    mov(assembler, rax, at(rax))
+    cmp(assembler, eax, 0)
+    je(assembler, nobr)
+    int3(assembler)
+    set_label(assembler, nobr)
     for instruction, i in cb.code {
         when ENABLE_GDB_DEBUGGING {
             append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
@@ -882,7 +924,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 jit_array_load(ctx, instruction, 1)
             case .bastore:
                 jit_array_store(ctx, instruction, 1)
-            case .iaload:
+            case .iaload, .faload:
                 jit_array_load(ctx, instruction, 4)
             case .iastore, .fastore:
                 jit_array_store(ctx, instruction, 4)
@@ -920,10 +962,12 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .f2i:
                 cvttss2si(assembler, eax, at(rbp, stack_base - 8 * stack_count))
                 mov(assembler, at(rbp, stack_base - 8 * stack_count), eax)
-                movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
             case .f2d:
                 cvtss2sd(assembler, xmm0, at(rbp, stack_base - 8 * stack_count)) 
                 movsd(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
+            case .d2f:
+                cvtsd2ss(assembler, xmm0, at(rbp, stack_base - 8 * stack_count)) 
+                movss(assembler, at(rbp, stack_base - 8 * stack_count), xmm0)
             case .fdiv:
                 stack_count -= 2
                 movss(assembler, xmm0, at(rbp, stack_base - 8 * (stack_count + 1)))
@@ -1361,8 +1405,8 @@ jit_div_by_zero_check :: proc(using ctx: ^JittingContext, reg: x86asm.Reg64, pc:
 jit_null_check :: proc(using ctx: ^JittingContext, reg: x86asm.Reg64, pc: int) {
     using x86asm
     oklabel := create_label(assembler)
-    cmpsx(assembler, reg, i32(0))
-    jne(assembler, oklabel)
+    cmpsx(assembler, reg, i32(1000))
+    jgt(assembler, oklabel)
 
     movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(pc))
 

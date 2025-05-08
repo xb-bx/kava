@@ -28,6 +28,7 @@ Thread_start0 :: proc "c" (env: ^^kava.JNINativeInterface, this: ^kava.ObjectHea
         kava.stack_trace = &vm.stacktraces[kava.current_tid]
         this := transmute(^kava.ObjectHeader)t.data
         kava.cur_thread = this
+        append(&vm.gc.temp_roots, kava.cur_thread)
         meth := transmute(proc "c"(env: ^^kava.JNINativeInterface, this: ^kava.ObjectHeader))(kava.jit_resolve_virtual(vm, this, kava.find_method(vm.classes["java/lang/Thread"], "run", "()V"), nil)^)
         meth(&vm.jni_env, this)
         delete_key(&vm.stacktraces, kava.current_tid)

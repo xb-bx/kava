@@ -29,6 +29,8 @@ init_threads :: proc(vm: ^VM) -> ^ObjectHeader {
     prio := transmute(^i32)get_object_field_ref(main_thread, "priority")
     prio ^= 5
     main_thread_ctor(&vm.jni_env, main_thread, threadgroup, nil, thread_name, 69)
+    append(&vm.gc.temp_roots, main_thread)
+    append(&vm.gc.temp_roots, threadgroup)
     return main_thread
 }
 monitor_enter :: proc "c" (vm: ^VM, monitor: ^Monitor) {
