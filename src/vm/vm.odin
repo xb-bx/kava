@@ -364,7 +364,11 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
 
 
             }
-            class.fields = make([]Field, len(classfile.fields))
+            if class.name == "java/lang/Class" {
+                class.fields = make([]Field, len(classfile.fields) + 1) // reserve for handle field
+            } else {
+                class.fields = make([]Field, len(classfile.fields))
+            }
             instance_fields := make([dynamic]^Field) 
             for field,i in classfile.fields {
                 fld := Field {}
@@ -379,16 +383,19 @@ load_class :: proc(vm: ^VM, class_name: string) -> shared.Result(^Class, string)
                 }
                 fld.descriptor = typ.(string)
                 fld.name = name.(string)
-                //t, _ := type_descriptor_to_type(vm, typ.(string))
-                //if t.is_err {
-                    //return t
-                //}
-                //fld.type = t.value.(^Class)
                 class.fields[i] = fld
                 if !hasFlag(fld.access_flags, MemberAccessFlags.Static) {
                     append(&instance_fields, &class.fields[i]) 
                 }
 
+            }
+            if class.name == "java/lang/Class" {
+                class.fields[len(class.fields) - 1] = Field {
+                    name = "handle",
+                    descriptor = "I",
+                    access_flags = .Private,
+                }
+                append(&instance_fields, &class.fields[len(class.fields) - 1])
             }
             class.instance_fields = instance_fields[:]
             calculate_class_size(class)
