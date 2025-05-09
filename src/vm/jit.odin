@@ -349,9 +349,6 @@ jit_array_store :: proc(using ctx: ^JittingContext, instruction: classparser.Ins
             mov(assembler, at(rax, r10, size_of(ArrayHeader), 8), r9)
     }
 }
-@export
-@(link_name="jit_br")
-jit_br: i32 = 0
 jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
     using classparser
     using x86asm 
@@ -365,13 +362,6 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
         // push exception object onto the stack
         mov(assembler, at(rbp, stack_base - 8 * stack_count), rdi)
     }
-    nobr := x86asm.create_label(assembler)
-    mov(assembler, rax, transmute(int)&jit_br)
-    mov(assembler, rax, at(rax))
-    cmp(assembler, eax, 0)
-    je(assembler, nobr)
-    int3(assembler)
-    set_label(assembler, nobr)
     for instruction, i in cb.code {
         when ENABLE_GDB_DEBUGGING {
             append(&line_mapping, shared.LineMapping{ line = cast(i32)line, pc = len(assembler.bytes) })
@@ -640,8 +630,6 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
             case .goto, .goto_w:
                 start := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 jmp(assembler, labels[start])
-//             case .invokedynamic:
-//                 jit_invoke_dynamic(ctx, instruction)
             case .invokespecial:
                 movsx(assembler, at(rbp, ((-cast(i32)size_of(StackEntry)) + cast(i32)offset_of(StackEntry, pc))), i32(get_instr_offset(instruction)))
                 instr := instruction.(classparser.SimpleInstruction)
@@ -739,16 +727,16 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                and(assembler, ecx, 0b11111)
-                sar_cl(assembler, eax)
+                and(assembler, ecx, 0b111111)
+                sar_cl(assembler, rax)
                 mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax) 
                 stack_count += 1
             case .lushr:
                 stack_count -= 2
                 mov(assembler, ecx, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                and(assembler, ecx, 0b11111)
-                shr_cl(assembler, eax)
+                and(assembler, ecx, 0b111111)
+                shr_cl(assembler, rax)
                 mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax) 
                 stack_count += 1
 
@@ -778,7 +766,7 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 stack_count -= 2
                 mov(assembler, rcx, at(rbp, stack_base - 8 * (stack_count + 2))) 
                 mov(assembler, rax, at(rbp, stack_base - 8 * (stack_count + 1))) 
-                and(assembler, ecx, 0b111111)
+                and(assembler, ecx, 0b1111111)
                 shl_cl(assembler, rax)
                 mov(assembler, at(rbp, stack_base - 8 * (stack_count + 1)), rax) 
                 stack_count += 1
@@ -853,11 +841,18 @@ jit_compile_cb :: proc(using ctx: ^JittingContext, cb: ^CodeBlock) {
                 fieldres := get_fieldrefconst_field(vm, method.parent.class_file, index, &fldclass)
                 jit_ensure_clinit_called(ctx, fldclass)
                 field := fieldres.value.(^Field)
+                if field.name == "$assertionsDisabled" {
+                    mov(assembler, rax, 0)
+                    stack_count += 1 
+                    mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+                } else {
+                    mov(assembler, rax, transmute(int)&field.static_data)
+                    mov(assembler, rax, at(rax))
+                    stack_count += 1 
+                    mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
+
+                }
                 
-                mov(assembler, rax, transmute(int)&field.static_data)
-                mov(assembler, rax, at(rax))
-                stack_count += 1 
-                mov(assembler, at(rbp, stack_base - 8 * stack_count), rax)
             case .putfield:
                 index := instruction.(classparser.SimpleInstruction).operand.(classparser.OneOperand).op
                 fldclass: ^Class = nil
